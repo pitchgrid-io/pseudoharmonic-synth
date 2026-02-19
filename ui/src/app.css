@@ -1,0 +1,34 @@
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-panel: #1a1a26;
+  --bg-knob: #222233;
+  --text-primary: #e8e8f0;
+  --text-secondary: #8888aa;
+  --accent-orange: #FFAB00;
+  --accent-blue: #0D75FF;
+  --accent-violet: #2619D1;
+  --accent-red: #E81900;
+  --border: #2a2a3a;
+  --knob-track: #333344;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
