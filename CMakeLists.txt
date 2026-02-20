@@ -10,8 +10,8 @@ if(UNIX AND NOT APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 endif()
 
-# JUCE — use the same copy as pitchgrid-plugin
-add_subdirectory(${CMAKE_SOURCE_DIR}/../pitchgrid-plugin/JUCE JUCE)
+# JUCE (git submodule)
+add_subdirectory(JUCE)
 
 # Scalatrix
 include(FetchContent)
