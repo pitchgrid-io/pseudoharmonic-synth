@@ -5,7 +5,8 @@ export const connected = writable(false);
 export const params = writable({
   stretch2: 2.0, stretch3: 3.0, stretch5: 5.0, stretch7: 7.0,
   decay: 2.0, release: 1.0, strikePos: 0.5, oddEven: 1.0,
-  volume: 0.02, noiseMix: 0.0, detune: 1.0, relaxTime: 0.1
+  volume: 0.02, noiseMix: 0.0, detune: 1.0, relaxTime: 0.1,
+  pitchBendRange: 2, mpeEnabled: false, mpeMasterBendRange: 2, mpePerNoteBendRange: 48
 });
 export const curveData = writable(null);
 export const activeNotes = writable([]);
@@ -14,13 +15,7 @@ export const intervals = writable([]);
 let ws = null;
 let reconnectTimer = null;
 
-export function getWSPort() {
-  const urlParams = new URLSearchParams(window.location.search);
-  return urlParams.get('wsPort') || '9100';
-}
-
-export function connect() {
-  const port = getWSPort();
+function connectWS(port) {
   const url = `ws://127.0.0.1:${port}`;
 
   try {
@@ -37,7 +32,7 @@ export function connect() {
     ws.onclose = () => {
       connected.set(false);
       if (!reconnectTimer) {
-        reconnectTimer = setInterval(() => connect(), 2000);
+        reconnectTimer = setInterval(() => connectWS(port), 2000);
       }
     };
 
@@ -54,8 +49,28 @@ export function connect() {
     };
   } catch (e) {
     if (!reconnectTimer) {
-      reconnectTimer = setInterval(() => connect(), 2000);
+      reconnectTimer = setInterval(() => connectWS(port), 2000);
     }
+  }
+}
+
+/**
+ * Initialize the WS connection.
+ * If running inside JUCE WebBrowserComponent, gets port via native function.
+ * Otherwise falls back to URL query param (for standalone browser dev).
+ */
+export async function init() {
+  if (window.__JUCE__) {
+    // Running inside JUCE — get port via native bridge
+    const { getNativeFunction } = await import('juce-framework-frontend');
+    const uiMounted = getNativeFunction('uiMounted');
+    const port = await uiMounted();
+    connectWS(port);
+  } else {
+    // Standalone browser — get port from URL query param
+    const urlParams = new URLSearchParams(window.location.search);
+    const port = urlParams.get('wsPort') || '9100';
+    connectWS(port);
   }
 }
 

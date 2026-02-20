@@ -27,13 +27,19 @@
   $: angle = -135 + norm * 270;
   $: displayVal = value < 10 ? value.toFixed(3) : value.toFixed(1);
 
+  let dragStyle = null;
+
   function onPointerDown(e) {
     dragging = true;
     startY = e.clientY;
     startValue = norm;
+    // Inject global style to suppress all hover/pointer effects during drag
+    dragStyle = document.createElement('style');
+    dragStyle.textContent = '*, *::before, *::after { pointer-events: none !important; cursor: ns-resize !important; user-select: none !important; -webkit-user-select: none !important; }';
+    document.head.appendChild(dragStyle);
+    // Window-level listeners work regardless of pointer-events CSS and window boundaries
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
-    e.target.setPointerCapture(e.pointerId);
   }
 
   function onPointerMove(e) {
@@ -48,6 +54,7 @@
     dragging = false;
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
+    if (dragStyle) { dragStyle.remove(); dragStyle = null; }
   }
 </script>
 
@@ -79,6 +86,7 @@
     align-items: center;
     cursor: ns-resize;
     user-select: none;
+    touch-action: none;
     width: 72px;
   }
   .knob-svg {

@@ -39,6 +39,8 @@ void WSBridge::handleConnection(std::shared_ptr<SimpleWS::WebSocketConnection> c
         std::lock_guard<std::mutex> lock(clientsMutex_);
         clients_.push_back(conn);
     }
+    if (connectCallback_)
+        connectCallback_();
     clientLoop(conn);
 }
 
@@ -94,5 +96,11 @@ void WSBridge::sendCurveData(const json& curveData)
 void WSBridge::sendActiveNotes(const json& notes)
 {
     json msg = {{"type", "notes"}, {"data", notes}};
+    broadcast(msg.dump());
+}
+
+void WSBridge::sendIntervals(const json& intervals)
+{
+    json msg = {{"type", "intervals"}, {"data", intervals}};
     broadcast(msg.dump());
 }

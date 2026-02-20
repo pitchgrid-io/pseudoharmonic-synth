@@ -31,6 +31,12 @@ struct SynthParams
     float detune = 1.0f;      // ratio (1.0 = no detune)
     float relaxTime = 0.1f;   // seconds — how fast detune relaxes to 0
 
+    // Pitch bend
+    bool mpeEnabled = false;              // false = standard MIDI, true = MPE
+    float pitchBendRange = 2.0f;          // standard MIDI bend range (semitones)
+    float mpeMasterBendRange = 2.0f;      // MPE manager channel range (semitones)
+    float mpePerNoteBendRange = 48.0f;    // MPE member channel range (semitones)
+
     int numHarmonics = 32;
 };
 
@@ -45,6 +51,8 @@ public:
     void noteOn(int note, float velocity, int mpeChannel = 0);
     void noteOff(int note, int mpeChannel = 0);
     void allNotesOff();
+    void pitchBend(int bendValue, int channel);
+    void sustainPedal(bool on, int channel);
 
     // Parameter access (thread-safe via atomic-like access — single writer)
     SynthParams& params() { return params_; }
@@ -81,6 +89,13 @@ private:
     std::array<float, kMaxHarmonics> decayRates_{};
     std::array<float, kMaxHarmonics> releaseRates_{};
     float relaxFactor_ = 0.0f;
+
+    // Per-channel pitch bend state (raw 14-bit, center = 8192)
+    std::array<int, 16> channelBendRaw_{};  // indexed 0-15 for channels 1-16
+    void initChannelBend() { channelBendRaw_.fill(8192); }
+
+    // Per-channel sustain pedal state
+    std::array<bool, 16> sustainOn_{};  // indexed 0-15 for channels 1-16
 
     // MTS-ESP
     void* mtsClient_ = nullptr;

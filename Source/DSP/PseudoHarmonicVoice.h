@@ -25,7 +25,10 @@ struct PseudoHarmonicVoice
     float velocity = 0.0f;
     float baseFreq = 0.0f;
     float detuneAdd = 0.0f;
+    float masterBendSemitones = 0.0f;  // from manager channel (ch 1)
+    float noteBendSemitones = 0.0f;    // from member channel (per-note)
     bool releasing = false;
+    bool sustained = false;            // held by sustain pedal
 
     // Per-harmonic oscillator state (complex rotation)
     std::array<std::complex<float>, kMaxHarmonics> x{};
@@ -39,6 +42,7 @@ struct PseudoHarmonicVoice
         mpeChannel = channel;
         active = true;
         releasing = false;
+        sustained = false;
         // Don't reset x — allows retriggering with continuity
     }
 
@@ -58,7 +62,8 @@ struct PseudoHarmonicVoice
                         const std::array<float, kMaxHarmonics>& releaseRates,
                         float sampleRate)
     {
-        float freq = baseFreq + detuneAdd;
+        float bendTotal = masterBendSemitones + noteBendSemitones;
+        float freq = baseFreq * std::pow(2.0f, bendTotal / 12.0f) + detuneAdd;
         const auto& rates = releasing ? releaseRates : decayRates;
         for (int h = 0; h < kMaxHarmonics; ++h)
         {

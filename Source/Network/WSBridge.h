@@ -30,10 +30,15 @@ public:
     void sendParams(const json& params);
     void sendCurveData(const json& curveData);
     void sendActiveNotes(const json& notes);
+    void sendIntervals(const json& intervals);
 
     // Callback when UI changes a parameter
     using ParamCallback = std::function<void(const std::string& id, float value)>;
     void onParamChange(ParamCallback cb) { paramCallback_ = cb; }
+
+    // Callback when a new client connects
+    using ConnectCallback = std::function<void()>;
+    void onClientConnect(ConnectCallback cb) { connectCallback_ = cb; }
 
 private:
     void handleConnection(std::shared_ptr<SimpleWS::WebSocketConnection> conn);
@@ -44,5 +49,6 @@ private:
     std::vector<std::shared_ptr<SimpleWS::WebSocketConnection>> clients_;
     std::mutex clientsMutex_;
     ParamCallback paramCallback_;
+    ConnectCallback connectCallback_;
     std::atomic<uint16_t> port_{0};
 };

@@ -27,7 +27,7 @@
     // Draw grid
     ctx.strokeStyle = '#1a1a2a';
     ctx.lineWidth = 0.5;
-    for (let c = 0; c <= 1200; c += 100) {
+    for (let c = 0; c <= maxCents; c += 100) {
       const x = (c / maxCents) * w;
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -35,30 +35,25 @@
       ctx.stroke();
     }
 
-    // Label some intervals
-    const labels = [
-      [0, 'P1'], [100, 'm1'], [200, 'M1'], [300, 'm2'], [400, 'M2'],
-      [500, 'm3'], [600, 'M3'], [700, 'P4'], [800, 'm5'], [900, 'M5'],
-      [1000, 'm6'], [1100, 'M6'], [1200, 'P7']
-    ];
-    ctx.fillStyle = '#555570';
+    // Label x-axis in cents
+    ctx.fillStyle = '#8888aa';
     ctx.font = '9px Inter, sans-serif';
     ctx.textAlign = 'center';
-    for (const [c, lbl] of labels) {
+    for (let c = 0; c <= maxCents; c += 200) {
       const x = (c / maxCents) * w;
-      ctx.fillText(lbl, x, h - 4);
+      ctx.fillText(c + 'ct', x, h - 4);
     }
 
     // Find max PL for normalization
     const maxPL = Math.max(...data.pl, 0.001);
 
-    // Draw PL curve (subtle)
-    drawCurve(data.pl, n, maxCents, maxPL, '#333355', 1);
+    // Draw PL curve
+    drawCurve(data.pl, n, maxCents, maxPL, '#6666aa', 1);
 
-    // Draw hull (subtle dashed)
+    // Draw hull (dashed)
     if (data.hull) {
       ctx.setLineDash([4, 4]);
-      drawCurve(data.hull, n, maxCents, maxPL, '#444466', 0.8);
+      drawCurve(data.hull, n, maxCents, maxPL, '#7777bb', 0.8);
       ctx.setLineDash([]);
     }
 
@@ -101,7 +96,8 @@
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
       const x = (i / n) * w;
-      const y = h - 20 - (arr[i] / maxVal) * (h - 30);
+      const v = Math.max(0, Math.min(arr[i], maxVal));
+      const y = h - 20 - (v / maxVal) * (h - 30);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }

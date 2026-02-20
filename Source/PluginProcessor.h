@@ -6,7 +6,8 @@
 #include "Visualization/ConsonanceCurve.h"
 
 class PseudoHarmonicProcessor : public juce::AudioProcessor,
-                                 private juce::Timer
+                                 private juce::Timer,
+                                 private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     PseudoHarmonicProcessor();
@@ -30,8 +31,8 @@ public:
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
 
-    void getStateInformation(juce::MemoryBlock&) override {}
-    void setStateInformation(const void*, int) override {}
+    void getStateInformation(juce::MemoryBlock& destData) override;
+    void setStateInformation(const void* data, int sizeInBytes) override;
 
     PseudoHarmonicEngine& getEngine() { return engine_; }
     WSBridge& getWSBridge() { return wsBridge_; }
@@ -39,11 +40,16 @@ public:
 
     uint16_t getWSPort() const { return wsBridge_.getPort(); }
 
+    juce::AudioProcessorValueTreeState apvts_;
+
 private:
     void timerCallback() override;
+    void parameterChanged(const juce::String& parameterID, float newValue) override;
     void handleParamFromUI(const std::string& id, float value);
     void sendCurveToUI();
     void sendParamsToUI();
+
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     PseudoHarmonicEngine engine_;
     WSBridge wsBridge_;
@@ -51,6 +57,12 @@ private:
 
     std::atomic<bool> curveNeedsUpdate_{true};
     std::atomic<bool> paramsNeedBroadcast_{true};
+
+    static constexpr const char* paramIDs[] = {
+        "stretch2", "stretch3", "stretch5", "stretch7",
+        "decay", "release", "strikePos", "oddEven",
+        "volume", "noiseMix", "detune", "relaxTime"
+    };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PseudoHarmonicProcessor)
 };

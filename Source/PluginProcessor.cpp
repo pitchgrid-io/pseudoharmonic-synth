@@ -1,10 +1,44 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+static juce::NormalisableRange<float> makeLogRange(float min, float max, float centre)
+{
+    auto r = juce::NormalisableRange<float>(min, max, 0.001f);
+    r.setSkewForCentre(centre);
+    return r;
+}
+
+juce::AudioProcessorValueTreeState::ParameterLayout PseudoHarmonicProcessor::createParameterLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+
+    constexpr int v = 1; // parameter version for VST3 host compatibility
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch2",  v}, "Stretch 2nd",  juce::NormalisableRange<float>(1.9f, 2.1f, 0.001f), 2.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch3",  v}, "Stretch 3rd",  juce::NormalisableRange<float>(2.9f, 3.1f, 0.001f), 3.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch5",  v}, "Stretch 5th",  juce::NormalisableRange<float>(4.9f, 5.1f, 0.001f), 5.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch7",  v}, "Stretch 7th",  juce::NormalisableRange<float>(6.9f, 7.1f, 0.001f), 7.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"decay",     v}, "Decay",        makeLogRange(0.01f, 20.0f, 1.0f), 2.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"release",   v}, "Release",      makeLogRange(0.01f, 20.0f, 1.0f), 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"strikePos", v}, "Strike Pos",   juce::NormalisableRange<float>(0.01f, 1.0f, 0.01f), 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"oddEven",   v}, "Odd/Even",     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"volume",    v}, "Volume",       makeLogRange(0.001f, 0.1f, 0.01f), 0.02f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"noiseMix",  v}, "Noise Mix",    juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"detune",    v}, "Detune",       makeLogRange(0.5f, 2.0f, 1.0f), 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"relaxTime", v}, "Relax Time",   makeLogRange(0.01f, 1.0f, 0.1f), 0.1f));
+
+    return layout;
+}
+
 PseudoHarmonicProcessor::PseudoHarmonicProcessor()
     : AudioProcessor(BusesProperties()
-                         .withOutput("Output", juce::AudioChannelSet::stereo(), true))
+                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      apvts_(*this, nullptr, "Parameters", createParameterLayout())
 {
+    // Register APVTS listeners for all 12 params
+    for (auto* id : paramIDs)
+        apvts_.addParameterListener(id, this);
+
     // Start WS bridge on auto-assigned port
     wsBridge_.start(0);
 
@@ -13,12 +47,21 @@ PseudoHarmonicProcessor::PseudoHarmonicProcessor()
         handleParamFromUI(id, value);
     });
 
+    // Re-send state when a new client connects
+    wsBridge_.onClientConnect([this]() {
+        curveNeedsUpdate_ = true;
+        paramsNeedBroadcast_ = true;
+    });
+
     // Start timer for UI updates (30 fps)
     startTimerHz(30);
 }
 
 PseudoHarmonicProcessor::~PseudoHarmonicProcessor()
 {
+    for (auto* id : paramIDs)
+        apvts_.removeParameterListener(id, this);
+
     stopTimer();
     wsBridge_.stop();
 }
@@ -41,6 +84,12 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             engine_.noteOn(msg.getNoteNumber(), msg.getFloatVelocity(), msg.getChannel());
         else if (msg.isNoteOff())
             engine_.noteOff(msg.getNoteNumber(), msg.getChannel());
+        else if (msg.isPitchWheel())
+            engine_.pitchBend(msg.getPitchWheelValue(), msg.getChannel());
+        else if (msg.isSustainPedalOn())
+            engine_.sustainPedal(true, msg.getChannel());
+        else if (msg.isSustainPedalOff())
+            engine_.sustainPedal(false, msg.getChannel());
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
             engine_.allNotesOff();
     }
@@ -51,6 +100,29 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     engine_.processBlock(left, right ? right : left, buffer.getNumSamples());
     if (right == nullptr && buffer.getNumChannels() > 1)
         buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
+}
+
+void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+{
+    auto& p = engine_.params();
+
+    if      (parameterID == "stretch2")  p.stretch2 = newValue;
+    else if (parameterID == "stretch3")  p.stretch3 = newValue;
+    else if (parameterID == "stretch5")  p.stretch5 = newValue;
+    else if (parameterID == "stretch7")  p.stretch7 = newValue;
+    else if (parameterID == "decay")     p.decay = newValue;
+    else if (parameterID == "release")   p.release = newValue;
+    else if (parameterID == "strikePos") p.strikePos = newValue;
+    else if (parameterID == "oddEven")   p.oddEven = newValue;
+    else if (parameterID == "volume")    p.volume = newValue;
+    else if (parameterID == "noiseMix")  p.noiseMix = newValue;
+    else if (parameterID == "detune")    p.detune = newValue;
+    else if (parameterID == "relaxTime") p.relaxTime = newValue;
+    else return;
+
+    engine_.paramsChanged();
+    curveNeedsUpdate_ = true;
+    paramsNeedBroadcast_ = true;
 }
 
 void PseudoHarmonicProcessor::timerCallback()
@@ -87,29 +159,33 @@ void PseudoHarmonicProcessor::timerCallback()
                 {"consonance", data.intervalConsonance[i]}
             });
         }
-        nlohmann::json msg = {{"type", "intervals"}, {"data", intervals}};
-        // Use broadcast directly since sendCurveData wraps in "curve" type
-        // We need a dedicated method, but for now piggyback
-        wsBridge_.sendActiveNotes(intervals); // FIXME: use proper method
+        wsBridge_.sendIntervals(intervals);
     }
 }
 
 void PseudoHarmonicProcessor::handleParamFromUI(const std::string& id, float value)
 {
-    auto& p = engine_.params();
+    // Route APVTS params through setValueNotifyingHost so the host sees the change.
+    // Must dispatch to message thread — VST3 wrapper only calls performEdit()
+    // (which notifies the host) when on the message thread.
+    auto* param = apvts_.getParameter(juce::String(id));
+    if (param)
+    {
+        float normalized = param->getNormalisableRange().convertTo0to1(value);
+        juce::MessageManager::callAsync([param, normalized]() {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(normalized);
+            param->endChangeGesture();
+        });
+        return;
+    }
 
-    if (id == "stretch2") p.stretch2 = value;
-    else if (id == "stretch3") p.stretch3 = value;
-    else if (id == "stretch5") p.stretch5 = value;
-    else if (id == "stretch7") p.stretch7 = value;
-    else if (id == "decay") p.decay = value;
-    else if (id == "release") p.release = value;
-    else if (id == "strikePos") p.strikePos = value;
-    else if (id == "oddEven") p.oddEven = value;
-    else if (id == "volume") p.volume = value;
-    else if (id == "noiseMix") p.noiseMix = value;
-    else if (id == "detune") p.detune = value;
-    else if (id == "relaxTime") p.relaxTime = value;
+    // Non-APVTS params (MPE settings) — handle directly
+    auto& p = engine_.params();
+    if (id == "pitchBendRange") p.pitchBendRange = value;
+    else if (id == "mpeEnabled") p.mpeEnabled = (value > 0.5f);
+    else if (id == "mpeMasterBendRange") p.mpeMasterBendRange = value;
+    else if (id == "mpePerNoteBendRange") p.mpePerNoteBendRange = value;
     else return;
 
     engine_.paramsChanged();
@@ -135,17 +211,33 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     for (int h = 0; h < p.numHarmonics; ++h) sum += std::abs(amps[h]);
     if (sum > 0) for (int h = 0; h < p.numHarmonics; ++h) amps[h] /= sum;
 
-    curveCalc_.compute(ratios.data(), amps.data(), std::min(p.numHarmonics, 16)); // limit for speed
+    // Build scalatrix::Spectrum from ratios + amplitudes
+    // Use abs() since PL model needs magnitudes, and skip near-zero partials
+    int numPartials = std::min(p.numHarmonics, 16); // limit for speed
+    std::vector<scalatrix::Partial> partials;
+    partials.reserve(numPartials);
+    for (int h = 0; h < numPartials; ++h)
+    {
+        double a = std::abs(double(amps[h]));
+        if (a > 1e-8)
+            partials.push_back({double(ratios[h]), a});
+    }
+    scalatrix::Spectrum spectrum(std::move(partials));
+
+    curveCalc_.compute(spectrum);
 
     const auto& data = curveCalc_.getData();
     nlohmann::json curveJson;
 
-    // Downsample for WS transfer: send every 2nd point (300 points)
+    // Downsample: every 4th point → 1000 points for UI
+    constexpr int kDownsampleStep = 4;
+    constexpr int kUIResolution = kCurveResolution / kDownsampleStep;
+
     nlohmann::json plArr = nlohmann::json::array();
     nlohmann::json spikyArr = nlohmann::json::array();
     nlohmann::json consArr = nlohmann::json::array();
     nlohmann::json hullArr = nlohmann::json::array();
-    for (int i = 0; i < kCurveResolution; i += 2)
+    for (int i = 0; i < kCurveResolution; i += kDownsampleStep)
     {
         plArr.push_back(data.plCurve[i]);
         spikyArr.push_back(data.spikyCurve[i]);
@@ -157,7 +249,7 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     curveJson["consonance"] = consArr;
     curveJson["hull"] = hullArr;
     curveJson["maxCents"] = kCurveMaxCents;
-    curveJson["resolution"] = kCurveResolution / 2;
+    curveJson["resolution"] = kUIResolution;
 
     wsBridge_.sendCurveData(curveJson);
 }
@@ -177,9 +269,27 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"volume", p.volume},
         {"noiseMix", p.noiseMix},
         {"detune", p.detune},
-        {"relaxTime", p.relaxTime}
+        {"relaxTime", p.relaxTime},
+        {"pitchBendRange", p.pitchBendRange},
+        {"mpeEnabled", p.mpeEnabled},
+        {"mpeMasterBendRange", p.mpeMasterBendRange},
+        {"mpePerNoteBendRange", p.mpePerNoteBendRange}
     };
     wsBridge_.sendParams(j);
+}
+
+void PseudoHarmonicProcessor::getStateInformation(juce::MemoryBlock& destData)
+{
+    auto state = apvts_.copyState();
+    std::unique_ptr<juce::XmlElement> xml(state.createXml());
+    copyXmlToBinary(*xml, destData);
+}
+
+void PseudoHarmonicProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
+    if (xml && xml->hasTagName(apvts_.state.getType()))
+        apvts_.replaceState(juce::ValueTree::fromXml(*xml));
 }
 
 juce::AudioProcessorEditor* PseudoHarmonicProcessor::createEditor()

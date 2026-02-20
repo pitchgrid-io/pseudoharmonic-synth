@@ -4,6 +4,7 @@
 
 PseudoHarmonicEngine::PseudoHarmonicEngine()
 {
+    initChannelBend();
     paramsChanged();
 }
 
@@ -118,6 +119,31 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
     auto& v = voices_[idx];
     v.noteOn(note, velocity, freq, mpeChannel);
     v.detuneAdd = freq * (params_.detune - 1.0f);
+
+    // Inherit current pitch bend state for this channel
+    if (params_.mpeEnabled)
+    {
+        // MPE: master bend from ch 1, per-note bend from member channel
+        float masterRaw = float(channelBendRaw_[0] - 8192) / 8192.0f;
+        v.masterBendSemitones = masterRaw * params_.mpeMasterBendRange;
+        if (mpeChannel > 1)
+        {
+            float noteRaw = float(channelBendRaw_[mpeChannel - 1] - 8192) / 8192.0f;
+            v.noteBendSemitones = noteRaw * params_.mpePerNoteBendRange;
+        }
+        else
+        {
+            v.noteBendSemitones = 0.0f;
+        }
+    }
+    else
+    {
+        // Standard MIDI: single bend range, applied as master bend
+        float raw = float(channelBendRaw_[mpeChannel - 1] - 8192) / 8192.0f;
+        v.masterBendSemitones = raw * params_.pitchBendRange;
+        v.noteBendSemitones = 0.0f;
+    }
+
     v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
     v.impact(impactVec_, velocity);
     nextVoice_ = (idx + 1) % kMaxVoices;
@@ -127,11 +153,91 @@ void PseudoHarmonicEngine::noteOff(int note, int mpeChannel)
 {
     for (auto& v : voices_)
     {
-        if (v.active && v.midiNote == note && !v.releasing)
+        if (v.active && v.midiNote == note && v.mpeChannel == mpeChannel && !v.releasing)
         {
-            v.noteOff();
-            v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
+            if (mpeChannel >= 1 && mpeChannel <= 16 && sustainOn_[mpeChannel - 1])
+            {
+                v.sustained = true;
+            }
+            else
+            {
+                v.noteOff();
+                v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
+            }
             break;
+        }
+    }
+}
+
+void PseudoHarmonicEngine::pitchBend(int bendValue, int channel)
+{
+    // Store raw bend per channel
+    if (channel >= 1 && channel <= 16)
+        channelBendRaw_[channel - 1] = bendValue;
+
+    float raw = float(bendValue - 8192) / 8192.0f;
+
+    if (params_.mpeEnabled)
+    {
+        if (channel == 1)
+        {
+            // Manager channel: update master bend on ALL voices
+            float semitones = raw * params_.mpeMasterBendRange;
+            for (auto& v : voices_)
+            {
+                if (v.active)
+                {
+                    v.masterBendSemitones = semitones;
+                    v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
+                }
+            }
+        }
+        else
+        {
+            // Member channel: per-note bend on matching voices
+            // Skip releasing voices — controller resets member channel after note-off
+            float semitones = raw * params_.mpePerNoteBendRange;
+            for (auto& v : voices_)
+            {
+                if (v.active && !v.releasing && v.mpeChannel == channel)
+                {
+                    v.noteBendSemitones = semitones;
+                    v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
+                }
+            }
+        }
+    }
+    else
+    {
+        // Standard MIDI: bend all voices on this channel
+        float semitones = raw * params_.pitchBendRange;
+        for (auto& v : voices_)
+        {
+            if (v.active && v.mpeChannel == channel)
+            {
+                v.masterBendSemitones = semitones;
+                v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
+            }
+        }
+    }
+}
+
+void PseudoHarmonicEngine::sustainPedal(bool on, int channel)
+{
+    if (channel >= 1 && channel <= 16)
+        sustainOn_[channel - 1] = on;
+
+    if (!on)
+    {
+        // Release all sustained voices on this channel
+        for (auto& v : voices_)
+        {
+            if (v.active && v.sustained && v.mpeChannel == channel)
+            {
+                v.sustained = false;
+                v.noteOff();
+                v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
+            }
         }
     }
 }
@@ -140,7 +246,7 @@ void PseudoHarmonicEngine::allNotesOff()
 {
     for (auto& v : voices_)
     {
-        if (v.active) v.noteOff();
+        if (v.active) { v.sustained = false; v.noteOff(); }
     }
 }
 
@@ -149,13 +255,13 @@ void PseudoHarmonicEngine::processBlock(float* outputL, float* outputR, int numS
     static thread_local std::mt19937 rng(42);
     static thread_local std::uniform_real_distribution<float> noiseDist(-1.0f, 1.0f);
 
-    // Relax detune per block
+    // Relax detune per block and update rotation to match
     for (auto& v : voices_)
     {
         if (v.active)
         {
             v.detuneAdd *= relaxFactor_;
-            // Only update rotation if detune is significant
+            v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
         }
     }
 
@@ -192,7 +298,11 @@ std::vector<PseudoHarmonicEngine::ActiveNote> PseudoHarmonicEngine::getActiveNot
     for (const auto& v : voices_)
     {
         if (v.active && !v.releasing)
-            notes.push_back({v.midiNote, v.baseFreq, v.mpeChannel});
+        {
+            float bendTotal = v.masterBendSemitones + v.noteBendSemitones;
+            float bentFreq = v.baseFreq * std::pow(2.0f, bendTotal / 12.0f);
+            notes.push_back({v.midiNote, bentFreq, v.mpeChannel});
+        }
     }
     return notes;
 }

@@ -1,109 +1,80 @@
 #include "ConsonanceCurve.h"
 #include <algorithm>
-#include <numeric>
 
-// Plomp-Levelt roughness model (Sethares parameterization)
-float ConsonanceCurveCalculator::plompLeveltRoughness(float f1, float a1, float f2, float a2)
+void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum)
 {
-    if (f1 > f2) { std::swap(f1, f2); std::swap(a1, a2); }
-    float s = 0.24f / (0.021f * f1 + 19.0f);
-    float diff = f2 - f1;
-    float minAmp = std::min(a1, a2);
-    return minAmp * (std::exp(-3.5f * s * diff) - std::exp(-5.75f * s * diff));
-}
+    const double f0 = 261.63; // Middle C
+    const double margin = 300.0;
 
-float ConsonanceCurveCalculator::plDissonance(float cents, const float* freqRatios,
-                                               const float* amplitudes, int n) const
-{
-    float ratio = std::pow(2.0f, cents / 1200.0f);
-    float f0 = 261.63f; // Middle C
+    // 1. Compute PL curve with margin for accurate hull computation
+    auto plCurve = scalatrix::computePLCurve(
+        spectrum, f0, -margin, kCurveMaxCents + margin);
 
-    float totalRoughness = 0.0f;
-    for (int i = 0; i < n; ++i)
+    // 2. Compute Hull₃ (2nd derivative maxima + cubic spline)
+    hullResult_ = scalatrix::computeHull3(plCurve);
+
+    // 3. Find peak spiky value near 0 cents for normalization
+    double peakSpiky = 0.0;
+    for (size_t i = 0; i < hullResult_.cents.size(); ++i)
     {
-        for (int j = 0; j < n; ++j)
-        {
-            float fi = f0 * freqRatios[i];
-            float fj = f0 * ratio * freqRatios[j];
-            totalRoughness += plompLeveltRoughness(fi, amplitudes[i], fj, amplitudes[j]);
-        }
+        if (std::abs(hullResult_.cents[i]) < 50.0)
+            peakSpiky = std::max(peakSpiky, hullResult_.spiky[i]);
     }
-    return totalRoughness;
-}
+    if (peakSpiky <= 0.0)
+    {
+        for (size_t i = 0; i < hullResult_.spiky.size(); ++i)
+            peakSpiky = std::max(peakSpiky, hullResult_.spiky[i]);
+    }
 
-void ConsonanceCurveCalculator::compute(const float* freqRatios, const float* amplitudes, int numPartials)
-{
-    const float step = kCurveMaxCents / float(kCurveResolution);
+    // 4. Resample to kCurveResolution points over [0, kCurveMaxCents]
+    data_.plCurve.resize(kCurveResolution);
+    data_.hullCurve.resize(kCurveResolution);
+    data_.spikyCurve.resize(kCurveResolution);
+    data_.consonance.resize(kCurveResolution);
 
-    // 1. Compute PL dissonance curve
+    const double step = double(kCurveMaxCents) / double(kCurveResolution - 1);
+
     for (int i = 0; i < kCurveResolution; ++i)
     {
-        float cents = float(i) * step;
-        data_.plCurve[i] = plDissonance(cents, freqRatios, amplitudes, numPartials);
-    }
+        double targetCents = double(i) * step;
 
-    // 2. Find local maxima of second derivative (Hull₃ anchor points)
-    // First compute second derivative
-    std::array<float, kCurveResolution> d2{};
-    for (int i = 1; i < kCurveResolution - 1; ++i)
-        d2[i] = data_.plCurve[i + 1] - 2.0f * data_.plCurve[i] + data_.plCurve[i - 1];
+        // Binary search for surrounding points in hullResult
+        auto it = std::lower_bound(
+            hullResult_.cents.begin(), hullResult_.cents.end(), targetCents);
 
-    // Find maxima of d2 above threshold
-    std::vector<int> anchorIdx;
-    anchorIdx.push_back(0);
-    float d2Threshold = 0.005f;
-
-    for (int i = 2; i < kCurveResolution - 2; ++i)
-    {
-        // local max of d2 and above threshold
-        if (d2[i] > d2[i - 1] && d2[i] > d2[i + 1] &&
-            d2[i] > d2[i - 2] && d2[i] > d2[i + 2] &&
-            std::abs(d2[i]) > d2Threshold)
+        if (it == hullResult_.cents.begin())
         {
-            anchorIdx.push_back(i);
+            size_t idx = 0;
+            data_.plCurve[i] = float(hullResult_.pl[idx]);
+            data_.hullCurve[i] = float(hullResult_.hull[idx]);
+            data_.spikyCurve[i] = float(hullResult_.spiky[idx]);
         }
-    }
-    anchorIdx.push_back(kCurveResolution - 1);
-
-    // 3. Interpolate hull through anchor points (linear for speed — good enough for viz)
-    // Build hull via linear interpolation through anchors
-    {
-        int seg = 0;
-        for (int i = 0; i < kCurveResolution; ++i)
+        else if (it == hullResult_.cents.end())
         {
-            while (seg + 1 < (int)anchorIdx.size() - 1 && i > anchorIdx[seg + 1])
-                ++seg;
-
-            int i0 = anchorIdx[seg];
-            int i1 = anchorIdx[std::min(seg + 1, (int)anchorIdx.size() - 1)];
-
-            if (i0 == i1)
-            {
-                data_.hullCurve[i] = data_.plCurve[i0];
-            }
-            else
-            {
-                float t = float(i - i0) / float(i1 - i0);
-                data_.hullCurve[i] = data_.plCurve[i0] + t * (data_.plCurve[i1] - data_.plCurve[i0]);
-            }
+            size_t idx = hullResult_.cents.size() - 1;
+            data_.plCurve[i] = float(hullResult_.pl[idx]);
+            data_.hullCurve[i] = float(hullResult_.hull[idx]);
+            data_.spikyCurve[i] = float(hullResult_.spiky[idx]);
         }
-    }
-
-    // 4. Spiky = hull - PL (consonance residual)
-    float peakSpiky = 0.0f;
-    for (int i = 0; i < kCurveResolution; ++i)
-    {
-        data_.spikyCurve[i] = std::max(0.0f, data_.hullCurve[i] - data_.plCurve[i]);
-        peakSpiky = std::max(peakSpiky, data_.spikyCurve[i]);
-    }
-
-    // 5. C(x) = max(0, 1 + 0.5 * log10(spiky / peak))
-    for (int i = 0; i < kCurveResolution; ++i)
-    {
-        if (peakSpiky > 0.0f && data_.spikyCurve[i] > 0.0f)
+        else
         {
-            float normalized = data_.spikyCurve[i] / peakSpiky;
-            data_.consonance[i] = std::max(0.0f, 1.0f + 0.5f * std::log10(normalized));
+            size_t idx1 = size_t(it - hullResult_.cents.begin());
+            size_t idx0 = idx1 - 1;
+            double t = (targetCents - hullResult_.cents[idx0])
+                       / (hullResult_.cents[idx1] - hullResult_.cents[idx0]);
+            data_.plCurve[i] = float(hullResult_.pl[idx0]
+                + t * (hullResult_.pl[idx1] - hullResult_.pl[idx0]));
+            data_.hullCurve[i] = float(hullResult_.hull[idx0]
+                + t * (hullResult_.hull[idx1] - hullResult_.hull[idx0]));
+            data_.spikyCurve[i] = float(hullResult_.spiky[idx0]
+                + t * (hullResult_.spiky[idx1] - hullResult_.spiky[idx0]));
+        }
+
+        // Compute consonance
+        if (peakSpiky > 0.0)
+        {
+            double normalized = double(data_.spikyCurve[i]) / peakSpiky;
+            data_.consonance[i] = float(scalatrix::consonanceValue(normalized));
         }
         else
         {
@@ -114,7 +85,8 @@ void ConsonanceCurveCalculator::compute(const float* freqRatios, const float* am
 
 float ConsonanceCurveCalculator::consonanceAt(float cents) const
 {
-    float idx = cents / (kCurveMaxCents / float(kCurveResolution));
+    if (data_.consonance.empty()) return 0.0f;
+    float idx = cents / (kCurveMaxCents / float(kCurveResolution - 1));
     int i0 = std::clamp(int(idx), 0, kCurveResolution - 2);
     float t = idx - float(i0);
     return data_.consonance[i0] + t * (data_.consonance[i0 + 1] - data_.consonance[i0]);
@@ -132,7 +104,6 @@ void ConsonanceCurveCalculator::computeIntervals(const std::vector<float>& noteF
             float higher = std::max(noteFreqs[i], noteFreqs[j]);
             float lower = std::min(noteFreqs[i], noteFreqs[j]);
             float cents = 1200.0f * std::log2(higher / lower);
-            // Reduce to within equave
             while (cents > kCurveMaxCents) cents -= kCurveMaxCents;
             data_.intervalCents.push_back(cents);
             data_.intervalConsonance.push_back(consonanceAt(cents));

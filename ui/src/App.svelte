@@ -1,10 +1,12 @@
 <script>
   import { onMount } from 'svelte';
-  import { connect, sendParam, params, connected, activeNotes } from './lib/ws.js';
+  import { init, sendParam, params, activeNotes } from './lib/ws.js';
   import Knob from './lib/Knob.svelte';
   import ConsonancePlot from './lib/ConsonancePlot.svelte';
 
-  onMount(() => connect());
+  onMount(() => init());
+
+  let showSettings = false;
 
   function send(id) {
     return (val) => sendParam(id, val);
@@ -17,15 +19,58 @@
     <div class="logo">
       <span class="logo-pseudo">Pseudo</span><span class="logo-harmonic">Harmonic</span>
     </div>
-    <div class="status" class:connected={$connected}>
-      {$connected ? '● Connected' : '○ Disconnected'}
-    </div>
     <div class="active-notes">
       {#each $activeNotes as note}
         <span class="note-badge">
-          {note.note || note}
+          {note.note} ({Math.round(note.freq)}Hz)
         </span>
       {/each}
+    </div>
+    <div class="settings-wrapper">
+      <button class="settings-btn" on:click={() => showSettings = !showSettings}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M6.5.5a.5.5 0 0 0-.5.5v1.07a5.5 5.5 0 0 0-1.56.64L3.58 1.85a.5.5 0 0 0-.7 0l-.7.7a.5.5 0 0 0 0 .71l.86.86A5.5 5.5 0 0 0 2.4 5.7H1.3a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1.1a5.5 5.5 0 0 0 .64 1.56l-.86.86a.5.5 0 0 0 0 .7l.7.71a.5.5 0 0 0 .71 0l.86-.86a5.5 5.5 0 0 0 1.56.64v1.1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1.1a5.5 5.5 0 0 0 1.56-.64l.86.86a.5.5 0 0 0 .7 0l.71-.7a.5.5 0 0 0 0-.71l-.86-.86a5.5 5.5 0 0 0 .64-1.56h1.1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1.1a5.5 5.5 0 0 0-.64-1.56l.86-.86a.5.5 0 0 0 0-.7l-.7-.71a.5.5 0 0 0-.71 0l-.86.86A5.5 5.5 0 0 0 8.5 2.07V1a.5.5 0 0 0-.5-.5h-1ZM7 5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/>
+        </svg>
+      </button>
+      {#if showSettings}
+        <div class="settings-panel">
+          <div class="settings-row">
+            <label>MPE</label>
+            <input type="checkbox" checked={$params.mpeEnabled}
+                   on:change={(e) => sendParam('mpeEnabled', e.target.checked ? 1 : 0)} />
+          </div>
+          {#if !$params.mpeEnabled}
+            <div class="settings-row">
+              <label>Pitch Bend Range</label>
+              <select value={$params.pitchBendRange}
+                      on:change={(e) => sendParam('pitchBendRange', Number(e.target.value))}>
+                {#each [1,2,3,4,5,7,12,24,48] as v}
+                  <option value={v} selected={$params.pitchBendRange === v}>{v} st</option>
+                {/each}
+              </select>
+            </div>
+          {:else}
+            <div class="settings-row">
+              <label>Master Bend</label>
+              <select value={$params.mpeMasterBendRange}
+                      on:change={(e) => sendParam('mpeMasterBendRange', Number(e.target.value))}>
+                {#each [1,2,3,4,5,7,12,24] as v}
+                  <option value={v} selected={$params.mpeMasterBendRange === v}>{v} st</option>
+                {/each}
+              </select>
+            </div>
+            <div class="settings-row">
+              <label>Per-Note Bend</label>
+              <select value={$params.mpePerNoteBendRange}
+                      on:change={(e) => sendParam('mpePerNoteBendRange', Number(e.target.value))}>
+                {#each [12,24,48,96] as v}
+                  <option value={v} selected={$params.mpePerNoteBendRange === v}>{v} st</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
   </header>
 
@@ -55,7 +100,7 @@
     <div class="control-group">
       <h3>Timbre</h3>
       <div class="knob-row">
-        <Knob label="Strike" value={$params.strikePos} min={0.01} max={1} step={0.01}
+        <Knob label="Strike Pos" value={$params.strikePos} min={0.01} max={1} step={0.01}
                onChange={send('strikePos')} />
         <Knob label="Odd/Even" value={$params.oddEven} min={0} max={1} step={0.01}
                onChange={send('oddEven')} />
@@ -111,14 +156,6 @@
   .logo-pseudo { color: var(--text-secondary); }
   .logo-harmonic { color: var(--accent-orange); }
 
-  .status {
-    font-size: 11px;
-    color: var(--accent-red);
-  }
-  .status.connected {
-    color: #4caf50;
-  }
-
   .active-notes {
     display: flex;
     gap: 4px;
@@ -164,5 +201,58 @@
     display: flex;
     gap: 4px;
     justify-content: center;
+  }
+
+  .settings-wrapper {
+    position: relative;
+  }
+  .settings-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 6px;
+    display: flex;
+    align-items: center;
+  }
+  .settings-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+  }
+  .settings-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 6px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    z-index: 100;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .settings-row label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .settings-row select {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 11px;
+    cursor: pointer;
   }
 </style>
