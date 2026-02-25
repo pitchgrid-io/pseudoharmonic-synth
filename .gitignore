@@ -1,4 +1,6 @@
 build/
+build-debug/
+Assets/
 ui/node_modules/
 ui/dist/
 *.wav

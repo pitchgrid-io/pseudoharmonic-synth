@@ -21,7 +21,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PseudoHarmonicProcessor::cre
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"decay",     v}, "Decay",        makeLogRange(0.01f, 20.0f, 1.0f), 2.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"release",   v}, "Release",      makeLogRange(0.01f, 20.0f, 1.0f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"strikePos", v}, "Strike Pos",   juce::NormalisableRange<float>(0.01f, 1.0f, 0.01f), 0.5f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"oddEven",   v}, "Odd/Even",     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"oddEven",   v}, "Odd Even",     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"volume",    v}, "Volume",       makeLogRange(0.001f, 0.1f, 0.01f), 0.02f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"noiseMix",  v}, "Noise Mix",    juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"detune",    v}, "Detune",       makeLogRange(0.5f, 2.0f, 1.0f), 1.0f));
@@ -80,6 +80,16 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     for (const auto metadata : midiMessages)
     {
         auto msg = metadata.getMessage();
+
+        // DIAG: log all MIDI to file
+        {
+            static juce::File logFile("/tmp/ph_midi_log.txt");
+            static bool firstWrite = true;
+            if (firstWrite) { logFile.replaceWithText("PseudoHarmonic MIDI Log\n"); firstWrite = false; }
+            auto desc = msg.getDescription();
+            logFile.appendText(desc + "\n");
+        }
+
         if (msg.isNoteOn())
             engine_.noteOn(msg.getNoteNumber(), msg.getFloatVelocity(), msg.getChannel());
         else if (msg.isNoteOff())
@@ -282,6 +292,15 @@ void PseudoHarmonicProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts_.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
+
+    // Save non-APVTS MIDI/MPE settings
+    const auto& p = engine_.params();
+    auto* midi = xml->createNewChildElement("MidiSettings");
+    midi->setAttribute("mpeEnabled", p.mpeEnabled ? 1 : 0);
+    midi->setAttribute("pitchBendRange", (double)p.pitchBendRange);
+    midi->setAttribute("mpeMasterBendRange", (double)p.mpeMasterBendRange);
+    midi->setAttribute("mpePerNoteBendRange", (double)p.mpePerNoteBendRange);
+
     copyXmlToBinary(*xml, destData);
 }
 
@@ -289,7 +308,23 @@ void PseudoHarmonicProcessor::setStateInformation(const void* data, int sizeInBy
 {
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml && xml->hasTagName(apvts_.state.getType()))
+    {
+        // Restore non-APVTS MIDI/MPE settings
+        if (auto* midi = xml->getChildByName("MidiSettings"))
+        {
+            auto& p = engine_.params();
+            p.mpeEnabled = midi->getIntAttribute("mpeEnabled", 0) != 0;
+            p.pitchBendRange = (float)midi->getDoubleAttribute("pitchBendRange", 2.0);
+            p.mpeMasterBendRange = (float)midi->getDoubleAttribute("mpeMasterBendRange", 2.0);
+            p.mpePerNoteBendRange = (float)midi->getDoubleAttribute("mpePerNoteBendRange", 48.0);
+            engine_.paramsChanged();
+
+            // Remove before passing to APVTS so it doesn't see unknown elements
+            xml->removeChildElement(midi, true);
+        }
+
         apvts_.replaceState(juce::ValueTree::fromXml(*xml));
+    }
 }
 
 juce::AudioProcessorEditor* PseudoHarmonicProcessor::createEditor()
