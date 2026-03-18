@@ -50,16 +50,9 @@
     // Draw PL curve
     drawCurve(data.pl, n, maxCents, maxPL, '#6666aa', 1);
 
-    // Draw hull (dashed)
-    if (data.hull) {
-      ctx.setLineDash([4, 4]);
-      drawCurve(data.hull, n, maxCents, maxPL, '#7777bb', 0.8);
-      ctx.setLineDash([]);
-    }
-
-    // Draw consonance curve (main feature)
+    // Draw consonance curve (pyramid-based)
     if (data.consonance) {
-      drawCurveAbsolute(data.consonance, n, maxCents, 1.0, '#FFAB00', 2);
+      drawFilledCurve(data.consonance, n, maxCents, 1.0, '#FFAB00', 1.5);
     }
 
     // Draw interval lines
@@ -104,14 +97,27 @@
     ctx.stroke();
   }
 
-  function drawCurveAbsolute(arr, n, maxCents, maxVal, color, lineWidth) {
+  function drawFilledCurve(arr, n, maxCents, maxVal, color, lineWidth) {
     if (!arr || n === 0) return;
+    const baseline = h - 20;
+    ctx.fillStyle = color + '30';
+    ctx.beginPath();
+    ctx.moveTo(0, baseline);
+    for (let i = 0; i < n; i++) {
+      const x = (i / n) * w;
+      const y = baseline - (arr[i] / maxVal) * (h - 30);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(((n - 1) / n) * w, baseline);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.strokeStyle = color;
     ctx.lineWidth = lineWidth;
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
       const x = (i / n) * w;
-      const y = h - 20 - (arr[i] / maxVal) * (h - 30);
+      const y = baseline - (arr[i] / maxVal) * (h - 30);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }

@@ -61,7 +61,8 @@ private:
     static constexpr const char* paramIDs[] = {
         "stretch2", "stretch3", "stretch5", "stretch7",
         "decay", "release", "strikePos", "oddEven",
-        "volume", "noiseMix", "detune", "relaxTime"
+        "volume", "noiseMix", "sustain", "detune", "relaxTime",
+        "curvePartials", "logBaseline"
     };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PseudoHarmonicProcessor)

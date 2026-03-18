@@ -63,7 +63,8 @@ PseudoHarmonicEditor::PseudoHarmonicEditor(PseudoHarmonicProcessor& p)
                            })}
 {
     addAndMakeVisible(webComponent);
-    setSize(1100, 600);
+    setResizable(true, true);
+    setSize(1300, 600);
 
 #ifndef NDEBUG
     webComponent.goToURL(localDevServerAddress);

@@ -24,8 +24,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout PseudoHarmonicProcessor::cre
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"oddEven",   v}, "Odd Even",     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"volume",    v}, "Volume",       makeLogRange(0.001f, 0.1f, 0.01f), 0.02f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"noiseMix",  v}, "Noise Mix",    juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"sustain",   v}, "Sustain",      juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"detune",    v}, "Detune",       makeLogRange(0.5f, 2.0f, 1.0f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"relaxTime", v}, "Relax Time",   makeLogRange(0.01f, 1.0f, 0.1f), 0.1f));
+
+    layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{"curvePartials", v}, "Curve Partials", 1, 32, 16));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"logBaseline", v}, "Log Baseline", juce::NormalisableRange<float>(0.1f, 2.0f, 0.01f), 0.5f));
 
     return layout;
 }
@@ -126,8 +130,11 @@ void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, 
     else if (parameterID == "oddEven")   p.oddEven = newValue;
     else if (parameterID == "volume")    p.volume = newValue;
     else if (parameterID == "noiseMix")  p.noiseMix = newValue;
+    else if (parameterID == "sustain")   p.sustain = newValue;
     else if (parameterID == "detune")    p.detune = newValue;
     else if (parameterID == "relaxTime") p.relaxTime = newValue;
+    else if (parameterID == "curvePartials") p.curvePartials = static_cast<int>(newValue);
+    else if (parameterID == "logBaseline") p.logBaseline = newValue;
     else return;
 
     engine_.paramsChanged();
@@ -223,7 +230,7 @@ void PseudoHarmonicProcessor::sendCurveToUI()
 
     // Build scalatrix::Spectrum from ratios + amplitudes
     // Use abs() since PL model needs magnitudes, and skip near-zero partials
-    int numPartials = std::min(p.numHarmonics, 16); // limit for speed
+    int numPartials = std::min(p.numHarmonics, p.curvePartials);
     std::vector<scalatrix::Partial> partials;
     partials.reserve(numPartials);
     for (int h = 0; h < numPartials; ++h)
@@ -234,7 +241,7 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     }
     scalatrix::Spectrum spectrum(std::move(partials));
 
-    curveCalc_.compute(spectrum);
+    curveCalc_.compute(spectrum, p.logBaseline);
 
     const auto& data = curveCalc_.getData();
     nlohmann::json curveJson;
@@ -244,20 +251,17 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     constexpr int kUIResolution = kCurveResolution / kDownsampleStep;
 
     nlohmann::json plArr = nlohmann::json::array();
-    nlohmann::json spikyArr = nlohmann::json::array();
+    nlohmann::json pyrArr = nlohmann::json::array();
     nlohmann::json consArr = nlohmann::json::array();
-    nlohmann::json hullArr = nlohmann::json::array();
     for (int i = 0; i < kCurveResolution; i += kDownsampleStep)
     {
         plArr.push_back(data.plCurve[i]);
-        spikyArr.push_back(data.spikyCurve[i]);
+        pyrArr.push_back(data.pyramidCurve[i]);
         consArr.push_back(data.consonance[i]);
-        hullArr.push_back(data.hullCurve[i]);
     }
     curveJson["pl"] = plArr;
-    curveJson["spiky"] = spikyArr;
+    curveJson["pyramid"] = pyrArr;
     curveJson["consonance"] = consArr;
-    curveJson["hull"] = hullArr;
     curveJson["maxCents"] = kCurveMaxCents;
     curveJson["resolution"] = kUIResolution;
 
@@ -278,12 +282,15 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"oddEven", p.oddEven},
         {"volume", p.volume},
         {"noiseMix", p.noiseMix},
+        {"sustain", p.sustain},
         {"detune", p.detune},
         {"relaxTime", p.relaxTime},
         {"pitchBendRange", p.pitchBendRange},
         {"mpeEnabled", p.mpeEnabled},
         {"mpeMasterBendRange", p.mpeMasterBendRange},
-        {"mpePerNoteBendRange", p.mpePerNoteBendRange}
+        {"mpePerNoteBendRange", p.mpePerNoteBendRange},
+        {"curvePartials", p.curvePartials},
+        {"logBaseline", p.logBaseline}
     };
     wsBridge_.sendParams(j);
 }

@@ -1,35 +1,22 @@
 #include "ConsonanceCurve.h"
 #include <algorithm>
 
-void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum)
+void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, float logBaseline)
 {
     const double f0 = 261.63; // Middle C
     const double margin = 300.0;
 
-    // 1. Compute PL curve with margin for accurate hull computation
+    // 1. Compute PL curve with margin
     auto plCurve = scalatrix::computePLCurve(
         spectrum, f0, -margin, kCurveMaxCents + margin);
 
-    // 2. Compute Hull₃ (2nd derivative maxima + cubic spline)
-    hullResult_ = scalatrix::computeHull3(plCurve);
+    // 2. Compute pyramid consonance curve
+    pyramidResult_ = scalatrix::computePyramidCurve(
+        spectrum, f0, -margin, kCurveMaxCents + margin, 0.5, double(logBaseline));
 
-    // 3. Find peak spiky value near 0 cents for normalization
-    double peakSpiky = 0.0;
-    for (size_t i = 0; i < hullResult_.cents.size(); ++i)
-    {
-        if (std::abs(hullResult_.cents[i]) < 50.0)
-            peakSpiky = std::max(peakSpiky, hullResult_.spiky[i]);
-    }
-    if (peakSpiky <= 0.0)
-    {
-        for (size_t i = 0; i < hullResult_.spiky.size(); ++i)
-            peakSpiky = std::max(peakSpiky, hullResult_.spiky[i]);
-    }
-
-    // 4. Resample to kCurveResolution points over [0, kCurveMaxCents]
+    // 3. Resample to kCurveResolution points over [0, kCurveMaxCents]
     data_.plCurve.resize(kCurveResolution);
-    data_.hullCurve.resize(kCurveResolution);
-    data_.spikyCurve.resize(kCurveResolution);
+    data_.pyramidCurve.resize(kCurveResolution);
     data_.consonance.resize(kCurveResolution);
 
     const double step = double(kCurveMaxCents) / double(kCurveResolution - 1);
@@ -38,47 +25,52 @@ void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum)
     {
         double targetCents = double(i) * step;
 
-        // Binary search for surrounding points in hullResult
-        auto it = std::lower_bound(
-            hullResult_.cents.begin(), hullResult_.cents.end(), targetCents);
+        // Interpolate PL curve
+        auto itPL = std::lower_bound(
+            plCurve.cents.begin(), plCurve.cents.end(), targetCents);
 
-        if (it == hullResult_.cents.begin())
+        if (itPL == plCurve.cents.begin())
         {
-            size_t idx = 0;
-            data_.plCurve[i] = float(hullResult_.pl[idx]);
-            data_.hullCurve[i] = float(hullResult_.hull[idx]);
-            data_.spikyCurve[i] = float(hullResult_.spiky[idx]);
+            data_.plCurve[i] = float(plCurve.pl[0]);
         }
-        else if (it == hullResult_.cents.end())
+        else if (itPL == plCurve.cents.end())
         {
-            size_t idx = hullResult_.cents.size() - 1;
-            data_.plCurve[i] = float(hullResult_.pl[idx]);
-            data_.hullCurve[i] = float(hullResult_.hull[idx]);
-            data_.spikyCurve[i] = float(hullResult_.spiky[idx]);
+            data_.plCurve[i] = float(plCurve.pl.back());
         }
         else
         {
-            size_t idx1 = size_t(it - hullResult_.cents.begin());
+            size_t idx1 = size_t(itPL - plCurve.cents.begin());
             size_t idx0 = idx1 - 1;
-            double t = (targetCents - hullResult_.cents[idx0])
-                       / (hullResult_.cents[idx1] - hullResult_.cents[idx0]);
-            data_.plCurve[i] = float(hullResult_.pl[idx0]
-                + t * (hullResult_.pl[idx1] - hullResult_.pl[idx0]));
-            data_.hullCurve[i] = float(hullResult_.hull[idx0]
-                + t * (hullResult_.hull[idx1] - hullResult_.hull[idx0]));
-            data_.spikyCurve[i] = float(hullResult_.spiky[idx0]
-                + t * (hullResult_.spiky[idx1] - hullResult_.spiky[idx0]));
+            double t = (targetCents - plCurve.cents[idx0])
+                       / (plCurve.cents[idx1] - plCurve.cents[idx0]);
+            data_.plCurve[i] = float(plCurve.pl[idx0]
+                + t * (plCurve.pl[idx1] - plCurve.pl[idx0]));
         }
 
-        // Compute consonance
-        if (peakSpiky > 0.0)
+        // Interpolate pyramid consonance
+        auto itPyr = std::lower_bound(
+            pyramidResult_.cents.begin(), pyramidResult_.cents.end(), targetCents);
+
+        if (itPyr == pyramidResult_.cents.begin())
         {
-            double normalized = double(data_.spikyCurve[i]) / peakSpiky;
-            data_.consonance[i] = float(scalatrix::consonanceValue(normalized));
+            data_.pyramidCurve[i] = float(pyramidResult_.pyramid[0]);
+            data_.consonance[i] = float(pyramidResult_.consonance[0]);
+        }
+        else if (itPyr == pyramidResult_.cents.end())
+        {
+            data_.pyramidCurve[i] = float(pyramidResult_.pyramid.back());
+            data_.consonance[i] = float(pyramidResult_.consonance.back());
         }
         else
         {
-            data_.consonance[i] = 0.0f;
+            size_t idx1 = size_t(itPyr - pyramidResult_.cents.begin());
+            size_t idx0 = idx1 - 1;
+            double t = (targetCents - pyramidResult_.cents[idx0])
+                       / (pyramidResult_.cents[idx1] - pyramidResult_.cents[idx0]);
+            data_.pyramidCurve[i] = float(pyramidResult_.pyramid[idx0]
+                + t * (pyramidResult_.pyramid[idx1] - pyramidResult_.pyramid[idx0]));
+            data_.consonance[i] = float(pyramidResult_.consonance[idx0]
+                + t * (pyramidResult_.consonance[idx1] - pyramidResult_.consonance[idx0]));
         }
     }
 }

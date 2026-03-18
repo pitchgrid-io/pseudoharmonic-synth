@@ -117,12 +117,25 @@
       <div class="knob-row">
         <Knob label="Decay" value={$params.decay} min={0.01} max={20} step={0.01} log={true}
                onChange={send('decay')} />
+        <Knob label="Sustain" value={$params.sustain} min={0} max={1} step={0.01}
+               onChange={send('sustain')} />
         <Knob label="Release" value={$params.release} min={0.01} max={20} step={0.01} log={true}
                onChange={send('release')} />
         <Knob label="Detune" value={$params.detune} min={0.5} max={2} step={0.001} log={true}
                onChange={send('detune')} />
         <Knob label="Relax" value={$params.relaxTime} min={0.01} max={1} step={0.01} log={true}
                onChange={send('relaxTime')} />
+      </div>
+    </div>
+
+    <!-- Consonance -->
+    <div class="control-group">
+      <h3>Consonance</h3>
+      <div class="knob-row">
+        <Knob label="Partials" value={$params.curvePartials} min={1} max={32} step={1}
+               onChange={send('curvePartials')} />
+        <Knob label="Log Base" value={$params.logBaseline} min={0.1} max={2} step={0.01}
+               onChange={send('logBaseline')} />
       </div>
     </div>
   </section>

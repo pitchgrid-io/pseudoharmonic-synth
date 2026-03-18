@@ -13,16 +13,11 @@ endif()
 # JUCE (git submodule)
 add_subdirectory(JUCE)
 
-# Scalatrix
-include(FetchContent)
-FetchContent_Declare(
-    scalatrix
-    GIT_REPOSITORY https://github.com/pitchgrid-io/scalatrix.git
-    GIT_TAG feature/consonance
-)
-FetchContent_MakeAvailable(scalatrix)
+# Scalatrix (git submodule)
+add_subdirectory(scalatrix)
 
 # nlohmann/json (header-only)
+include(FetchContent)
 FetchContent_Declare(
     json
     GIT_REPOSITORY https://github.com/nlohmann/json.git

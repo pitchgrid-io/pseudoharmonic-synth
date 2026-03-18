@@ -34,6 +34,10 @@ struct PseudoHarmonicVoice
     std::array<std::complex<float>, kMaxHarmonics> x{};
     std::array<std::complex<float>, kMaxHarmonics> rot{};
 
+    // Per-harmonic sustain: target amplitude and per-sample excitation
+    std::array<float, kMaxHarmonics> sustainLevel{};
+    std::array<float, kMaxHarmonics> sustainExcitation{};
+
     void noteOn(int note, float vel, float freq, int channel = 0)
     {
         midiNote = note;
@@ -70,6 +74,9 @@ struct PseudoHarmonicVoice
             float factor = std::exp(-rates[h] / sampleRate);
             float phase = 2.0f * float(M_PI) * freq * freqRatios[h] / sampleRate;
             rot[h] = factor * std::complex<float>(std::cos(phase), std::sin(phase));
+
+            // Sustain excitation: counteract decay at the target level
+            sustainExcitation[h] = releasing ? 0.0f : sustainLevel[h] * (1.0f - factor);
         }
     }
 
@@ -79,6 +86,15 @@ struct PseudoHarmonicVoice
         for (int h = 0; h < kMaxHarmonics; ++h)
         {
             x[h] *= rot[h];
+
+            // Add sustain excitation in the direction of the oscillator
+            if (sustainExcitation[h] > 0.0f)
+            {
+                float mag = std::abs(x[h]);
+                if (mag > 1e-15f)
+                    x[h] += sustainExcitation[h] * (x[h] / mag);
+            }
+
             sum += x[h].imag();
         }
         return sum;

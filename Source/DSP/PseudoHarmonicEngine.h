@@ -26,6 +26,7 @@ struct SynthParams
     float oddEven = 1.0f;     // 0..1 — 0 = no even, 1 = equal
     float volume = 0.02f;
     float noiseMix = 0.0f;    // 0..1
+    float sustain = 0.0f;     // 0..1 — sustain level (fraction of strike amplitude)
 
     // Detune
     float detune = 1.0f;      // ratio (1.0 = no detune)
@@ -38,6 +39,10 @@ struct SynthParams
     float mpePerNoteBendRange = 48.0f;    // MPE member channel range (semitones)
 
     int numHarmonics = 32;
+
+    // Consonance curve
+    int curvePartials = 16;               // number of partials used for curve display
+    float logBaseline = 0.5f;             // log formula: C = max(0, 1 + logBaseline * log10(pyr/peak))
 };
 
 class PseudoHarmonicEngine

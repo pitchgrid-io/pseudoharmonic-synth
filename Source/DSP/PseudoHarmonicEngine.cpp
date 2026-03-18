@@ -146,6 +146,14 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
 
     v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
     v.impact(impactVec_, velocity);
+
+    // Compute per-harmonic sustain levels from post-impact amplitude
+    for (int h = 0; h < kMaxHarmonics; ++h)
+        v.sustainLevel[h] = params_.sustain * std::abs(v.x[h]);
+
+    // Recompute rotation so sustainExcitation reflects the sustain levels
+    v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
+
     nextVoice_ = (idx + 1) % kMaxVoices;
 }
 
