@@ -256,7 +256,7 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     for (int i = 0; i < kCurveResolution; i += kDownsampleStep)
     {
         plArr.push_back(data.plCurve[i]);
-        pyrArr.push_back(data.pyramidCurve[i]);
+        pyrArr.push_back(data.spikyCurve[i]);
         consArr.push_back(data.consonance[i]);
     }
     curveJson["pl"] = plArr;

@@ -11,7 +11,7 @@ static constexpr float kCurveMaxCents = 2000.0f;
 struct ConsonanceCurveData
 {
     std::vector<float> plCurve;
-    std::vector<float> pyramidCurve;
+    std::vector<float> spikyCurve;
     std::vector<float> consonance;
 
     // Interval lines (cents positions of currently sounding intervals)
@@ -22,18 +22,12 @@ struct ConsonanceCurveData
 class ConsonanceCurveCalculator
 {
 public:
-    // Compute PL curve + pyramid consonance using scalatrix
     void compute(const scalatrix::Spectrum& spectrum, float logBaseline = 0.5f);
-
-    // Get consonance value at a specific cents position
     float consonanceAt(float cents) const;
-
-    // Get interval data for currently active note pairs
     void computeIntervals(const std::vector<float>& noteFreqs);
-
     const ConsonanceCurveData& getData() const { return data_; }
 
 private:
     ConsonanceCurveData data_;
-    scalatrix::PyramidResult pyramidResult_;
+    scalatrix::ConsonanceCurve curveResult_;
 };

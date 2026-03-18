@@ -6,17 +6,13 @@ void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, flo
     const double f0 = 261.63; // Middle C
     const double margin = 300.0;
 
-    // 1. Compute PL curve with margin
-    auto plCurve = scalatrix::computePLCurve(
-        spectrum, f0, -margin, kCurveMaxCents + margin);
-
-    // 2. Compute pyramid consonance curve
-    pyramidResult_ = scalatrix::computePyramidCurve(
+    // Compute consonance curve (PL + exact pyramids + hull + consonance)
+    curveResult_ = scalatrix::computeConsonanceCurve(
         spectrum, f0, -margin, kCurveMaxCents + margin, 0.5, double(logBaseline));
 
-    // 3. Resample to kCurveResolution points over [0, kCurveMaxCents]
+    // Resample to kCurveResolution points over [0, kCurveMaxCents]
     data_.plCurve.resize(kCurveResolution);
-    data_.pyramidCurve.resize(kCurveResolution);
+    data_.spikyCurve.resize(kCurveResolution);
     data_.consonance.resize(kCurveResolution);
 
     const double step = double(kCurveMaxCents) / double(kCurveResolution - 1);
@@ -25,52 +21,33 @@ void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, flo
     {
         double targetCents = double(i) * step;
 
-        // Interpolate PL curve
-        auto itPL = std::lower_bound(
-            plCurve.cents.begin(), plCurve.cents.end(), targetCents);
+        auto it = std::lower_bound(
+            curveResult_.cents.begin(), curveResult_.cents.end(), targetCents);
 
-        if (itPL == plCurve.cents.begin())
+        if (it == curveResult_.cents.begin())
         {
-            data_.plCurve[i] = float(plCurve.pl[0]);
+            data_.plCurve[i] = float(curveResult_.pl[0]);
+            data_.spikyCurve[i] = float(curveResult_.spiky[0]);
+            data_.consonance[i] = float(curveResult_.consonance[0]);
         }
-        else if (itPL == plCurve.cents.end())
+        else if (it == curveResult_.cents.end())
         {
-            data_.plCurve[i] = float(plCurve.pl.back());
+            data_.plCurve[i] = float(curveResult_.pl.back());
+            data_.spikyCurve[i] = float(curveResult_.spiky.back());
+            data_.consonance[i] = float(curveResult_.consonance.back());
         }
         else
         {
-            size_t idx1 = size_t(itPL - plCurve.cents.begin());
+            size_t idx1 = size_t(it - curveResult_.cents.begin());
             size_t idx0 = idx1 - 1;
-            double t = (targetCents - plCurve.cents[idx0])
-                       / (plCurve.cents[idx1] - plCurve.cents[idx0]);
-            data_.plCurve[i] = float(plCurve.pl[idx0]
-                + t * (plCurve.pl[idx1] - plCurve.pl[idx0]));
-        }
-
-        // Interpolate pyramid consonance
-        auto itPyr = std::lower_bound(
-            pyramidResult_.cents.begin(), pyramidResult_.cents.end(), targetCents);
-
-        if (itPyr == pyramidResult_.cents.begin())
-        {
-            data_.pyramidCurve[i] = float(pyramidResult_.pyramid[0]);
-            data_.consonance[i] = float(pyramidResult_.consonance[0]);
-        }
-        else if (itPyr == pyramidResult_.cents.end())
-        {
-            data_.pyramidCurve[i] = float(pyramidResult_.pyramid.back());
-            data_.consonance[i] = float(pyramidResult_.consonance.back());
-        }
-        else
-        {
-            size_t idx1 = size_t(itPyr - pyramidResult_.cents.begin());
-            size_t idx0 = idx1 - 1;
-            double t = (targetCents - pyramidResult_.cents[idx0])
-                       / (pyramidResult_.cents[idx1] - pyramidResult_.cents[idx0]);
-            data_.pyramidCurve[i] = float(pyramidResult_.pyramid[idx0]
-                + t * (pyramidResult_.pyramid[idx1] - pyramidResult_.pyramid[idx0]));
-            data_.consonance[i] = float(pyramidResult_.consonance[idx0]
-                + t * (pyramidResult_.consonance[idx1] - pyramidResult_.consonance[idx0]));
+            double t = (targetCents - curveResult_.cents[idx0])
+                       / (curveResult_.cents[idx1] - curveResult_.cents[idx0]);
+            data_.plCurve[i] = float(curveResult_.pl[idx0]
+                + t * (curveResult_.pl[idx1] - curveResult_.pl[idx0]));
+            data_.spikyCurve[i] = float(curveResult_.spiky[idx0]
+                + t * (curveResult_.spiky[idx1] - curveResult_.spiky[idx0]));
+            data_.consonance[i] = float(curveResult_.consonance[idx0]
+                + t * (curveResult_.consonance[idx1] - curveResult_.consonance[idx0]));
         }
     }
 }
