@@ -11,6 +11,7 @@ static constexpr float kCurveMaxCents = 2000.0f;
 struct ConsonanceCurveData
 {
     std::vector<float> plCurve;
+    std::vector<float> hullCurve;
     std::vector<float> spikyCurve;
     std::vector<float> consonance;
 

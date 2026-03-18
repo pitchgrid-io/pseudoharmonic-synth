@@ -251,16 +251,16 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     constexpr int kUIResolution = kCurveResolution / kDownsampleStep;
 
     nlohmann::json plArr = nlohmann::json::array();
-    nlohmann::json pyrArr = nlohmann::json::array();
+    nlohmann::json hullArr = nlohmann::json::array();
     nlohmann::json consArr = nlohmann::json::array();
     for (int i = 0; i < kCurveResolution; i += kDownsampleStep)
     {
         plArr.push_back(data.plCurve[i]);
-        pyrArr.push_back(data.spikyCurve[i]);
+        hullArr.push_back(data.hullCurve[i]);
         consArr.push_back(data.consonance[i]);
     }
     curveJson["pl"] = plArr;
-    curveJson["pyramid"] = pyrArr;
+    curveJson["hull"] = hullArr;
     curveJson["consonance"] = consArr;
     curveJson["maxCents"] = kCurveMaxCents;
     curveJson["resolution"] = kUIResolution;

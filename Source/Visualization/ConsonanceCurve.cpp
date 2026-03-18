@@ -12,6 +12,7 @@ void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, flo
 
     // Resample to kCurveResolution points over [0, kCurveMaxCents]
     data_.plCurve.resize(kCurveResolution);
+    data_.hullCurve.resize(kCurveResolution);
     data_.spikyCurve.resize(kCurveResolution);
     data_.consonance.resize(kCurveResolution);
 
@@ -27,12 +28,14 @@ void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, flo
         if (it == curveResult_.cents.begin())
         {
             data_.plCurve[i] = float(curveResult_.pl[0]);
+            data_.hullCurve[i] = float(curveResult_.hull[0]);
             data_.spikyCurve[i] = float(curveResult_.spiky[0]);
             data_.consonance[i] = float(curveResult_.consonance[0]);
         }
         else if (it == curveResult_.cents.end())
         {
             data_.plCurve[i] = float(curveResult_.pl.back());
+            data_.hullCurve[i] = float(curveResult_.hull.back());
             data_.spikyCurve[i] = float(curveResult_.spiky.back());
             data_.consonance[i] = float(curveResult_.consonance.back());
         }
@@ -44,6 +47,8 @@ void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, flo
                        / (curveResult_.cents[idx1] - curveResult_.cents[idx0]);
             data_.plCurve[i] = float(curveResult_.pl[idx0]
                 + t * (curveResult_.pl[idx1] - curveResult_.pl[idx0]));
+            data_.hullCurve[i] = float(curveResult_.hull[idx0]
+                + t * (curveResult_.hull[idx1] - curveResult_.hull[idx0]));
             data_.spikyCurve[i] = float(curveResult_.spiky[idx0]
                 + t * (curveResult_.spiky[idx1] - curveResult_.spiky[idx0]));
             data_.consonance[i] = float(curveResult_.consonance[idx0]

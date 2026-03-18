@@ -50,7 +50,12 @@
     // Draw PL curve
     drawCurve(data.pl, n, maxCents, maxPL, '#6666aa', 1);
 
-    // Draw consonance curve (pyramid-based)
+    // Draw hull (flat-topped PL) as dashed line
+    if (data.hull) {
+      drawDashedCurve(data.hull, n, maxCents, maxPL, '#cc4444', 1);
+    }
+
+    // Draw consonance curve
     if (data.consonance) {
       drawFilledCurve(data.consonance, n, maxCents, 1.0, '#FFAB00', 1.5);
     }
@@ -95,6 +100,23 @@
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
+  }
+
+  function drawDashedCurve(arr, n, maxCents, maxVal, color, lineWidth) {
+    if (!arr || n === 0) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = (i / n) * w;
+      const v = Math.max(0, Math.min(arr[i], maxVal));
+      const y = h - 20 - (v / maxVal) * (h - 30);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   function drawFilledCurve(arr, n, maxCents, maxVal, color, lineWidth) {
