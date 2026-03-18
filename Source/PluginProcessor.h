@@ -57,6 +57,8 @@ private:
 
     std::atomic<bool> curveNeedsUpdate_{true};
     std::atomic<bool> paramsNeedBroadcast_{true};
+    std::atomic<bool> autoLogBaseline_{true};
+    std::atomic<bool> updatingLogBaseline_{false};
 
     static constexpr const char* paramIDs[] = {
         "stretch2", "stretch3", "stretch5", "stretch7",

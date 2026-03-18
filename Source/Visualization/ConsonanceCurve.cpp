@@ -10,6 +10,8 @@ void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, flo
     curveResult_ = scalatrix::computeConsonanceCurve(
         spectrum, f0, -margin, kCurveMaxCents + margin, 0.5, double(logBaseline));
 
+    effectiveLogBaseline_ = float(curveResult_.logBaseline);
+
     // Resample to kCurveResolution points over [0, kCurveMaxCents]
     data_.plCurve.resize(kCurveResolution);
     data_.hullCurve.resize(kCurveResolution);

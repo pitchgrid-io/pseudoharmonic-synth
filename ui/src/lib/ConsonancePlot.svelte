@@ -44,8 +44,8 @@
       ctx.fillText(c + 'ct', x, h - 4);
     }
 
-    // Find max PL for normalization
-    const maxPL = Math.max(...data.pl, 0.001);
+    // Find max for normalization (hull >= PL, so use hull if available)
+    const maxPL = Math.max(...(data.hull || data.pl), 0.001);
 
     // Draw PL curve
     drawCurve(data.pl, n, maxCents, maxPL, '#6666aa', 1);

@@ -133,9 +133,15 @@ void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, 
     else if (parameterID == "sustain")   p.sustain = newValue;
     else if (parameterID == "detune")    p.detune = newValue;
     else if (parameterID == "relaxTime") p.relaxTime = newValue;
-    else if (parameterID == "curvePartials") p.curvePartials = static_cast<int>(newValue);
-    else if (parameterID == "logBaseline") p.logBaseline = newValue;
+    else if (parameterID == "curvePartials") { p.curvePartials = static_cast<int>(newValue); autoLogBaseline_ = true; }
+    else if (parameterID == "logBaseline") { p.logBaseline = newValue; if (!updatingLogBaseline_) autoLogBaseline_ = false; }
     else return;
+
+    // Spectrum-affecting params trigger auto logBaseline recalculation
+    if (parameterID == "stretch2" || parameterID == "stretch3" ||
+        parameterID == "stretch5" || parameterID == "stretch7" ||
+        parameterID == "strikePos" || parameterID == "oddEven")
+        autoLogBaseline_ = true;
 
     engine_.paramsChanged();
     curveNeedsUpdate_ = true;
@@ -241,7 +247,27 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     }
     scalatrix::Spectrum spectrum(std::move(partials));
 
-    curveCalc_.compute(spectrum, p.logBaseline);
+    float logBaselineToUse = autoLogBaseline_ ? 0.0f : p.logBaseline;
+    curveCalc_.compute(spectrum, logBaselineToUse);
+
+    // If auto-computed, update the param to reflect the optimal value
+    if (autoLogBaseline_)
+    {
+        float computed = curveCalc_.getEffectiveLogBaseline();
+        p.logBaseline = computed;
+        // Update APVTS on message thread so UI knob reflects new value
+        auto* param = apvts_.getParameter("logBaseline");
+        if (param)
+        {
+            float normalized = param->getNormalisableRange().convertTo0to1(computed);
+            updatingLogBaseline_ = true;
+            juce::MessageManager::callAsync([this, param, normalized]() {
+                param->setValueNotifyingHost(normalized);
+                updatingLogBaseline_ = false;
+            });
+        }
+        paramsNeedBroadcast_ = true;
+    }
 
     const auto& data = curveCalc_.getData();
     nlohmann::json curveJson;

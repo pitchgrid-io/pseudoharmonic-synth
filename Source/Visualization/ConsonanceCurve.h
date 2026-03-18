@@ -25,10 +25,12 @@ class ConsonanceCurveCalculator
 public:
     void compute(const scalatrix::Spectrum& spectrum, float logBaseline = 0.5f);
     float consonanceAt(float cents) const;
+    float getEffectiveLogBaseline() const { return effectiveLogBaseline_; }
     void computeIntervals(const std::vector<float>& noteFreqs);
     const ConsonanceCurveData& getData() const { return data_; }
 
 private:
     ConsonanceCurveData data_;
     scalatrix::ConsonanceCurve curveResult_;
+    float effectiveLogBaseline_ = 0.5f;
 };
