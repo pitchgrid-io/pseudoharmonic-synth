@@ -24,7 +24,8 @@ struct SynthParams
     // Timbre
     float strikePos = 0.5f;   // 0..1 — simulates striking position
     float oddEven = 1.0f;     // 0..1 — 0 = no even, 1 = equal
-    float volume = 0.02f;
+    float strike = 0.02f;     // strike strength (scales impact)
+    float volume = 1.0f;      // global output volume
     float noiseMix = 0.0f;    // 0..1
     float sustain = 0.0f;     // 0..1 — sustain level (fraction of strike amplitude)
 
@@ -40,8 +41,9 @@ struct SynthParams
 
     int numHarmonics = 32;
 
-    // Consonance curve
-    int curvePartials = 16;               // number of partials used for curve display
+    // Partials control (affects both sound and consonance curve)
+    float curvePartials = 16.0f;          // fractional: 9.4 = 9 full + 10th at 0.4 weight
+    float warp = 32.0f;        // how many partials get pseudoharmonic pitch adjustment
     float logBaseline = 0.5f;             // log formula: C = max(0, 1 + logBaseline * log10(pyr/peak))
 };
 

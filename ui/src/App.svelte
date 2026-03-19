@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { init, sendParam, params, activeNotes } from './lib/ws.js';
+  import { init, sendParam, params, activeNotes, outputLevel } from './lib/ws.js';
   import Knob from './lib/Knob.svelte';
   import ConsonancePlot from './lib/ConsonancePlot.svelte';
 
@@ -93,6 +93,8 @@
                onChange={send('stretch5')} />
         <Knob label="7th" value={$params.stretch7} min={6.9} max={7.1} step={0.001}
                onChange={send('stretch7')} />
+        <Knob label="Warp" value={$params.warp} min={0} max={32} step={0.1}
+               onChange={send('warp')} />
       </div>
     </div>
 
@@ -100,14 +102,14 @@
     <div class="control-group">
       <h3>Timbre</h3>
       <div class="knob-row">
+        <Knob label="Strike" value={$params.strike} min={0.001} max={0.1} step={0.001} log={true}
+               onChange={send('strike')} />
         <Knob label="Strike Pos" value={$params.strikePos} min={0.01} max={1} step={0.01}
                onChange={send('strikePos')} />
         <Knob label="Odd/Even" value={$params.oddEven} min={0} max={1} step={0.01}
                onChange={send('oddEven')} />
         <Knob label="Noise" value={$params.noiseMix} min={0} max={1} step={0.01}
                onChange={send('noiseMix')} />
-        <Knob label="Volume" value={$params.volume} min={0.001} max={0.1} step={0.001} log={true}
-               onChange={send('volume')} />
       </div>
     </div>
 
@@ -121,10 +123,12 @@
                onChange={send('sustain')} />
         <Knob label="Release" value={$params.release} min={0.01} max={20} step={0.01} log={true}
                onChange={send('release')} />
-        <Knob label="Detune" value={$params.detune} min={0.5} max={2} step={0.001} log={true}
+        <Knob label="Onset Pitch" value={$params.detune} min={0.5} max={2} step={0.001} log={true}
                onChange={send('detune')} />
-        <Knob label="Relax" value={$params.relaxTime} min={0.01} max={1} step={0.01} log={true}
+        <Knob label="Settle" value={$params.relaxTime} min={0.01} max={1} step={0.01} log={true}
                onChange={send('relaxTime')} />
+        <Knob label="Volume" value={$params.volume} min={0.01} max={2} step={0.01} log={true}
+               onChange={send('volume')} />
       </div>
     </div>
 
@@ -132,13 +136,18 @@
     <div class="control-group">
       <h3>Consonance</h3>
       <div class="knob-row">
-        <Knob label="Partials" value={$params.curvePartials} min={1} max={32} step={1}
+        <Knob label="Partials" value={$params.curvePartials} min={1} max={32} step={0.1}
                onChange={send('curvePartials')} />
         <Knob label="Log Base" value={$params.logBaseline} min={0.1} max={2} step={0.01}
                onChange={send('logBaseline')} />
       </div>
     </div>
   </section>
+
+  <!-- Output level meter -->
+  <div class="level-meter">
+    <div class="level-fill" style="height: {Math.min(100, $outputLevel * 100 / 0.5)}%"></div>
+  </div>
 </div>
 
 <style>
@@ -190,6 +199,7 @@
 
   .controls {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     padding: 12px;
     background: var(--bg-secondary);
@@ -267,5 +277,21 @@
     padding: 3px 6px;
     font-size: 11px;
     cursor: pointer;
+  }
+
+  .level-meter {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--bg-secondary);
+  }
+  .level-fill {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    background: var(--accent-orange);
+    transition: height 50ms ease-out;
   }
 </style>

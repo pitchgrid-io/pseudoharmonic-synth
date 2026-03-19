@@ -64,7 +64,7 @@ PseudoHarmonicEditor::PseudoHarmonicEditor(PseudoHarmonicProcessor& p)
 {
     addAndMakeVisible(webComponent);
     setResizable(true, true);
-    setSize(1300, 600);
+    setSize(1300, 720);
 
 #ifndef NDEBUG
     webComponent.goToURL(localDevServerAddress);

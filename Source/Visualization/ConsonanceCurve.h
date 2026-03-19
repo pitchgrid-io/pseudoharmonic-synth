@@ -3,10 +3,23 @@
 #include <scalatrix/consonance.hpp>
 #include <scalatrix/spectrum.hpp>
 #include <vector>
+#include <string>
 #include <cmath>
+
+struct TuningParams;
 
 static constexpr int kCurveResolution = 4000;  // 0.5ct steps over 2000ct
 static constexpr float kCurveMaxCents = 2000.0f;
+
+struct ScaleDegreeInfo
+{
+    float cents;
+    float consonance;
+    std::string label;
+    float tuningX;  // tuning_coord.x (0 = root, 1 = 1200ct)
+    float tuningY;  // tuning_coord.y (0 = bottom, 1 = top)
+    bool inScale;   // true if node is in the base MOS scale
+};
 
 struct ConsonanceCurveData
 {
@@ -27,6 +40,7 @@ public:
     float consonanceAt(float cents) const;
     float getEffectiveLogBaseline() const { return effectiveLogBaseline_; }
     void computeIntervals(const std::vector<float>& noteFreqs);
+    std::vector<ScaleDegreeInfo> computeScaleDegrees(const TuningParams& tuning) const;
     const ConsonanceCurveData& getData() const { return data_; }
 
 private:

@@ -31,6 +31,8 @@ public:
     void sendCurveData(const json& curveData);
     void sendActiveNotes(const json& notes);
     void sendIntervals(const json& intervals);
+    void sendScaleDegrees(const json& degrees);
+    void sendLevel(float peak);
 
     // Callback when UI changes a parameter
     using ParamCallback = std::function<void(const std::string& id, float value)>;

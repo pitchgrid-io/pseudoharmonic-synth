@@ -17,8 +17,29 @@ void PseudoHarmonicEngine::prepareToPlay(double sampleRate, int blockSize)
 
 void PseudoHarmonicEngine::paramsChanged()
 {
+    // Save old gains to rescale active voices
+    auto oldGains = harmonicGains_;
+
     recomputeFreqRatios();
     recomputeGains();
+
+    // Rescale active voices' oscillator amplitudes to match new gain profile
+    for (auto& v : voices_)
+    {
+        if (!v.active) continue;
+        for (int h = 0; h < kMaxHarmonics; ++h)
+        {
+            float oldG = std::abs(oldGains[h]);
+            float newG = std::abs(harmonicGains_[h]);
+            if (oldG > 1e-10f)
+                v.x[h] *= newG / oldG;
+            else if (newG > 1e-10f)
+                v.x[h] = std::complex<float>(0.0f, 0.0f); // was silent, stays silent
+
+            // Update sustain level from current amplitude
+            v.sustainLevel[h] = params_.sustain * std::abs(v.x[h]);
+        }
+    }
 
     // Decay/release rates: higher harmonics decay faster (rate proportional to harmonic number)
     for (int h = 0; h < kMaxHarmonics; ++h)
@@ -35,34 +56,67 @@ void PseudoHarmonicEngine::paramsChanged()
 
 void PseudoHarmonicEngine::recomputeFreqRatios()
 {
+    int fullStretch = static_cast<int>(params_.warp);
+    float fracWeight = params_.warp - float(fullStretch);
+
     for (int h = 0; h < kMaxHarmonics; ++h)
     {
-        float ratio = float(h + 1);
+        float harmonic = float(h + 1);
+        float pseudo = harmonic;
         auto factors = primeFactors(h + 1);
         for (int p : factors)
         {
             switch (p)
             {
-                case 2: ratio *= params_.stretch2 / 2.0f; break;
-                case 3: ratio *= params_.stretch3 / 3.0f; break;
-                case 5: ratio *= params_.stretch5 / 5.0f; break;
-                case 7: ratio *= params_.stretch7 / 7.0f; break;
-                default: break; // primes > 7 stay exact
+                case 2: pseudo *= params_.stretch2 / 2.0f; break;
+                case 3: pseudo *= params_.stretch3 / 3.0f; break;
+                case 5: pseudo *= params_.stretch5 / 5.0f; break;
+                case 7: pseudo *= params_.stretch7 / 7.0f; break;
+                default: break;
             }
         }
-        freqRatios_[h] = ratio;
+
+        // Blend in log-freq space: below fullStretch = full pseudo,
+        // at boundary = fractional blend, above = pure harmonic
+        float weight; // 1 = full pseudo, 0 = pure harmonic
+        if (h < fullStretch)
+            weight = 1.0f;
+        else if (h == fullStretch)
+            weight = fracWeight;
+        else
+            weight = 0.0f;
+
+        if (weight >= 1.0f)
+            freqRatios_[h] = pseudo;
+        else if (weight <= 0.0f)
+            freqRatios_[h] = harmonic;
+        else
+            freqRatios_[h] = std::exp2(weight * std::log2(pseudo) + (1.0f - weight) * std::log2(harmonic));
     }
 }
 
 void PseudoHarmonicEngine::recomputeGains()
 {
     float sumGains = 0.0f;
+    int fullPartials = static_cast<int>(params_.curvePartials);
+    float fracWeight = params_.curvePartials - float(fullPartials);
+
     for (int h = 0; h < kMaxHarmonics; ++h)
     {
         float n = float(h + 1);
         float gain = (1.0f / n)
                      * std::sin(float(M_PI) * n * params_.strikePos / 2.0f)
                      * ((h + 1) % 2 == 0 ? params_.oddEven : 1.0f);
+
+        // Apply partials windowing: full weight up to fullPartials,
+        // fractional weight on the next, zero beyond
+        if (h < fullPartials)
+            ; // full weight
+        else if (h == fullPartials)
+            gain *= fracWeight;
+        else
+            gain = 0.0f;
+
         harmonicGains_[h] = gain;
         sumGains += std::abs(gain);
     }
@@ -74,7 +128,7 @@ void PseudoHarmonicEngine::recomputeGains()
         for (int h = 0; h < kMaxHarmonics; ++h)
         {
             harmonicGains_[h] *= norm;
-            impactVec_[h] = params_.volume * harmonicGains_[h];
+            impactVec_[h] = params_.strike * harmonicGains_[h];
         }
     }
 }
@@ -295,8 +349,8 @@ void PseudoHarmonicEngine::processBlock(float* outputL, float* outputR, int numS
                 v.active = false;
             }
         }
-        outputL[i] = sample;
-        outputR[i] = sample;
+        outputL[i] = sample * params_.volume;
+        outputR[i] = sample * params_.volume;
     }
 }
 

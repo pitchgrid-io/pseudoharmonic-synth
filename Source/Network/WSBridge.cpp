@@ -104,3 +104,15 @@ void WSBridge::sendIntervals(const json& intervals)
     json msg = {{"type", "intervals"}, {"data", intervals}};
     broadcast(msg.dump());
 }
+
+void WSBridge::sendScaleDegrees(const json& degrees)
+{
+    json msg = {{"type", "scaleDegrees"}, {"data", degrees}};
+    broadcast(msg.dump());
+}
+
+void WSBridge::sendLevel(float peak)
+{
+    json msg = {{"type", "level"}, {"value", peak}};
+    broadcast(msg.dump());
+}

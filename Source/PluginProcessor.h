@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "DSP/PseudoHarmonicEngine.h"
 #include "Network/WSBridge.h"
+#include "Network/OSCReceiver.h"
 #include "Visualization/ConsonanceCurve.h"
 
 class PseudoHarmonicProcessor : public juce::AudioProcessor,
@@ -53,18 +54,24 @@ private:
 
     PseudoHarmonicEngine engine_;
     WSBridge wsBridge_;
+    OSCReceiver oscReceiver_;
     ConsonanceCurveCalculator curveCalc_;
+
+    uint64_t lastTuningVersion_{0};
+    nlohmann::json cachedScaleDegrees_;
+    bool wasOscConnected_{false};
 
     std::atomic<bool> curveNeedsUpdate_{true};
     std::atomic<bool> paramsNeedBroadcast_{true};
     std::atomic<bool> autoLogBaseline_{true};
     std::atomic<bool> updatingLogBaseline_{false};
+    std::atomic<float> peakLevel_{0.0f};
 
     static constexpr const char* paramIDs[] = {
         "stretch2", "stretch3", "stretch5", "stretch7",
         "decay", "release", "strikePos", "oddEven",
-        "volume", "noiseMix", "sustain", "detune", "relaxTime",
-        "curvePartials", "logBaseline"
+        "strike", "volume", "noiseMix", "sustain", "detune", "relaxTime",
+        "curvePartials", "logBaseline", "warp"
     };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PseudoHarmonicProcessor)

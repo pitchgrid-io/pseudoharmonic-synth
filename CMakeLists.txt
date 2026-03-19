@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(PseudoHarmonicSynth VERSION 0.1.0)
+project(PseudoHarmonicSynth VERSION 0.2.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,6 +52,8 @@ target_sources(PseudoHarmonicSynth PRIVATE
     Source/Network/SimpleWebSocketServer.h
     Source/Network/WSBridge.cpp
     Source/Network/WSBridge.h
+    Source/Network/OSCReceiver.cpp
+    Source/Network/OSCReceiver.h
     Source/Visualization/ConsonanceCurve.cpp
     Source/Visualization/ConsonanceCurve.h
 )

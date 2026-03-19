@@ -22,13 +22,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout PseudoHarmonicProcessor::cre
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"release",   v}, "Release",      makeLogRange(0.01f, 20.0f, 1.0f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"strikePos", v}, "Strike Pos",   juce::NormalisableRange<float>(0.01f, 1.0f, 0.01f), 0.5f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"oddEven",   v}, "Odd Even",     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"volume",    v}, "Volume",       makeLogRange(0.001f, 0.1f, 0.01f), 0.02f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"strike",    v}, "Strike",       makeLogRange(0.001f, 0.1f, 0.01f), 0.02f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"volume",    v}, "Volume",       makeLogRange(0.01f, 2.0f, 0.5f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"noiseMix",  v}, "Noise Mix",    juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"sustain",   v}, "Sustain",      juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"detune",    v}, "Detune",       makeLogRange(0.5f, 2.0f, 1.0f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"relaxTime", v}, "Relax Time",   makeLogRange(0.01f, 1.0f, 0.1f), 0.1f));
 
-    layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{"curvePartials", v}, "Curve Partials", 1, 32, 16));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"curvePartials", v}, "Partials", juce::NormalisableRange<float>(1.0f, 32.0f, 0.1f), 16.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"warp", v}, "Warp", juce::NormalisableRange<float>(0.0f, 32.0f, 0.1f), 32.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"logBaseline", v}, "Log Baseline", juce::NormalisableRange<float>(0.1f, 2.0f, 0.01f), 0.5f));
 
     return layout;
@@ -57,6 +59,9 @@ PseudoHarmonicProcessor::PseudoHarmonicProcessor()
         paramsNeedBroadcast_ = true;
     });
 
+    // Start OSC receiver (sends heartbeat to plugin on port 34562)
+    oscReceiver_.start(34562);
+
     // Start timer for UI updates (30 fps)
     startTimerHz(30);
 }
@@ -67,6 +72,7 @@ PseudoHarmonicProcessor::~PseudoHarmonicProcessor()
         apvts_.removeParameterListener(id, this);
 
     stopTimer();
+    oscReceiver_.stop();
     wsBridge_.stop();
 }
 
@@ -114,6 +120,16 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     engine_.processBlock(left, right ? right : left, buffer.getNumSamples());
     if (right == nullptr && buffer.getNumChannels() > 1)
         buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
+
+    // Measure peak level from output
+    float peak = 0.0f;
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* data = buffer.getReadPointer(ch);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            peak = std::max(peak, std::abs(data[i]));
+    }
+    peakLevel_.store(peak);
 }
 
 void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, float newValue)
@@ -128,19 +144,22 @@ void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, 
     else if (parameterID == "release")   p.release = newValue;
     else if (parameterID == "strikePos") p.strikePos = newValue;
     else if (parameterID == "oddEven")   p.oddEven = newValue;
+    else if (parameterID == "strike")    p.strike = newValue;
     else if (parameterID == "volume")    p.volume = newValue;
     else if (parameterID == "noiseMix")  p.noiseMix = newValue;
     else if (parameterID == "sustain")   p.sustain = newValue;
     else if (parameterID == "detune")    p.detune = newValue;
     else if (parameterID == "relaxTime") p.relaxTime = newValue;
-    else if (parameterID == "curvePartials") { p.curvePartials = static_cast<int>(newValue); autoLogBaseline_ = true; }
+    else if (parameterID == "curvePartials") { p.curvePartials = newValue; autoLogBaseline_ = true; }
+    else if (parameterID == "warp") p.warp = newValue;
     else if (parameterID == "logBaseline") { p.logBaseline = newValue; if (!updatingLogBaseline_) autoLogBaseline_ = false; }
     else return;
 
     // Spectrum-affecting params trigger auto logBaseline recalculation
     if (parameterID == "stretch2" || parameterID == "stretch3" ||
         parameterID == "stretch5" || parameterID == "stretch7" ||
-        parameterID == "strikePos" || parameterID == "oddEven")
+        parameterID == "strikePos" || parameterID == "oddEven" ||
+        parameterID == "curvePartials" || parameterID == "warp")
         autoLogBaseline_ = true;
 
     engine_.paramsChanged();
@@ -151,12 +170,16 @@ void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, 
 void PseudoHarmonicProcessor::timerCallback()
 {
     // Send curve data when spectrum params change
-    if (curveNeedsUpdate_.exchange(false))
+    bool curveJustUpdated = curveNeedsUpdate_.exchange(false);
+    if (curveJustUpdated)
         sendCurveToUI();
 
     // Send current params
     if (paramsNeedBroadcast_.exchange(false))
         sendParamsToUI();
+
+    // Send output level
+    wsBridge_.sendLevel(peakLevel_.load());
 
     // Always send active notes (cheap)
     auto notes = engine_.getActiveNotes();
@@ -184,6 +207,40 @@ void PseudoHarmonicProcessor::timerCallback()
         }
         wsBridge_.sendIntervals(intervals);
     }
+
+    // Scale degrees from OSC tuning
+    bool oscConnected = oscReceiver_.isConnected();
+    if (oscConnected)
+    {
+        auto ver = oscReceiver_.getTuningVersion();
+        if (ver != lastTuningVersion_ || curveJustUpdated)
+        {
+            lastTuningVersion_ = ver;
+            auto tuning = oscReceiver_.getTuningParams();
+            auto degrees = curveCalc_.computeScaleDegrees(tuning);
+
+            cachedScaleDegrees_ = nlohmann::json::array();
+            for (const auto& d : degrees)
+            {
+                cachedScaleDegrees_.push_back({
+                    {"cents", d.cents},
+                    {"consonance", d.consonance},
+                    {"label", d.label},
+                    {"tx", d.tuningX},
+                    {"ty", d.tuningY},
+                    {"inScale", d.inScale}
+                });
+            }
+        }
+        wsBridge_.sendScaleDegrees(cachedScaleDegrees_);
+    }
+    else if (wasOscConnected_)
+    {
+        // Just disconnected — clear UI
+        cachedScaleDegrees_ = nlohmann::json::array();
+        wsBridge_.sendScaleDegrees(cachedScaleDegrees_);
+    }
+    wasOscConnected_ = oscConnected;
 }
 
 void PseudoHarmonicProcessor::handleParamFromUI(const std::string& id, float value)
@@ -234,9 +291,21 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     for (int h = 0; h < p.numHarmonics; ++h) sum += std::abs(amps[h]);
     if (sum > 0) for (int h = 0; h < p.numHarmonics; ++h) amps[h] /= sum;
 
+    // Apply partials windowing (same as engine): fractional partial count
+    int fullPartials = static_cast<int>(p.curvePartials);
+    float fracWeight = p.curvePartials - float(fullPartials);
+    for (int h = 0; h < kMaxHarmonics; ++h)
+    {
+        if (h < fullPartials)
+            ; // full weight
+        else if (h == fullPartials)
+            amps[h] *= fracWeight;
+        else
+            amps[h] = 0.0f;
+    }
+
     // Build scalatrix::Spectrum from ratios + amplitudes
-    // Use abs() since PL model needs magnitudes, and skip near-zero partials
-    int numPartials = std::min(p.numHarmonics, p.curvePartials);
+    int numPartials = std::min(p.numHarmonics, fullPartials + (fracWeight > 0.0f ? 1 : 0));
     std::vector<scalatrix::Partial> partials;
     partials.reserve(numPartials);
     for (int h = 0; h < numPartials; ++h)
@@ -306,6 +375,7 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"release", p.release},
         {"strikePos", p.strikePos},
         {"oddEven", p.oddEven},
+        {"strike", p.strike},
         {"volume", p.volume},
         {"noiseMix", p.noiseMix},
         {"sustain", p.sustain},
@@ -316,7 +386,8 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"mpeMasterBendRange", p.mpeMasterBendRange},
         {"mpePerNoteBendRange", p.mpePerNoteBendRange},
         {"curvePartials", p.curvePartials},
-        {"logBaseline", p.logBaseline}
+        {"logBaseline", p.logBaseline},
+        {"warp", p.warp}
     };
     wsBridge_.sendParams(j);
 }

@@ -1,13 +1,13 @@
 <script>
-  import { curveData, intervals } from './ws.js';
+  import { curveData, intervals, scaleDegrees } from './ws.js';
 
   let canvas;
   let ctx;
   let w = 800, h = 300;
 
-  $: if (canvas && $curveData) draw($curveData, $intervals);
+  $: if (canvas && $curveData) draw($curveData, $intervals, $scaleDegrees);
 
-  function draw(data, ivls) {
+  function draw(data, ivls, degs) {
     if (!canvas) return;
     ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
@@ -58,6 +58,60 @@
     // Draw consonance curve
     if (data.consonance) {
       drawFilledCurve(data.consonance, n, maxCents, 1.0, '#FFAB00', 1.5);
+    }
+
+    // Draw scale degree lines and tuning nodes (from OSC tuning)
+    if (degs && degs.length > 0) {
+      const plotTop = 20;
+      const plotBot = h - 15;
+      const plotH = plotBot - plotTop;
+
+      // Dashed vertical lines and labels
+      for (const deg of degs) {
+        const x = (deg.cents / maxCents) * w;
+
+        ctx.strokeStyle = 'rgba(200,200,210,0.6)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, plotTop);
+        ctx.lineTo(x, plotBot);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Label above
+        ctx.fillStyle = 'rgba(220,220,230,0.9)';
+        ctx.font = '11px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(deg.label, x, 14);
+      }
+
+      // Strip y values are already normalized to [0, 1) by squeezed_t in scalatrix
+      const tyToY = (ty) => plotBot - ty * plotH;
+
+      // Connect consecutive in-scale nodes with solid lines (skip non-scale nodes)
+      ctx.strokeStyle = 'rgba(200,200,210,0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      let first = true;
+      for (const deg of degs) {
+        if (!deg.inScale) continue;
+        const nx = (deg.cents / maxCents) * w;
+        const ny = tyToY(deg.ty);
+        if (first) { ctx.moveTo(nx, ny); first = false; }
+        else ctx.lineTo(nx, ny);
+      }
+      ctx.stroke();
+
+      // Draw node circles (all nodes, in-scale slightly larger)
+      for (const deg of degs) {
+        const nx = (deg.cents / maxCents) * w;
+        const ny = tyToY(deg.ty);
+        ctx.fillStyle = 'rgba(220,220,230,0.9)';
+        ctx.beginPath();
+        ctx.arc(nx, ny, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // Draw interval lines
@@ -151,7 +205,7 @@
       for (const entry of entries) {
         w = entry.contentRect.width;
         h = entry.contentRect.height;
-        if ($curveData) draw($curveData, $intervals);
+        if ($curveData) draw($curveData, $intervals, $scaleDegrees);
       }
     });
     ro.observe(el);

@@ -5,13 +5,15 @@ export const connected = writable(false);
 export const params = writable({
   stretch2: 2.0, stretch3: 3.0, stretch5: 5.0, stretch7: 7.0,
   decay: 2.0, release: 1.0, strikePos: 0.5, oddEven: 1.0,
-  volume: 0.02, noiseMix: 0.0, detune: 1.0, relaxTime: 0.1,
+  strike: 0.02, volume: 1.0, noiseMix: 0.0, detune: 1.0, relaxTime: 0.1,
   pitchBendRange: 2, mpeEnabled: false, mpeMasterBendRange: 2, mpePerNoteBendRange: 48,
-  curvePartials: 16, logBaseline: 0.5
+  curvePartials: 16, logBaseline: 0.5, warp: 32
 });
 export const curveData = writable(null);
 export const activeNotes = writable([]);
 export const intervals = writable([]);
+export const scaleDegrees = writable([]);
+export const outputLevel = writable(0);
 
 let ws = null;
 let reconnectTimer = null;
@@ -46,6 +48,8 @@ function connectWS(port) {
         else if (msg.type === 'curve') curveData.set(msg.data);
         else if (msg.type === 'notes') activeNotes.set(msg.data);
         else if (msg.type === 'intervals') intervals.set(msg.data);
+        else if (msg.type === 'scaleDegrees') scaleDegrees.set(msg.data);
+        else if (msg.type === 'level') outputLevel.set(msg.value);
       } catch (e) {}
     };
   } catch (e) {

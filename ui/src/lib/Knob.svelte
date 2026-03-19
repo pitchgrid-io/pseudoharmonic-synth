@@ -62,11 +62,11 @@
   <svg viewBox="0 0 60 60" class="knob-svg">
     <!-- Track arc -->
     <circle cx="30" cy="30" r="24" fill="none" stroke="var(--knob-track)" stroke-width="3"
-            stroke-dasharray="113 40" stroke-dashoffset="-20"
+            stroke-dasharray="113 40" stroke-dashoffset="0"
             transform="rotate(135, 30, 30)" />
     <!-- Value arc -->
     <circle cx="30" cy="30" r="24" fill="none" stroke="var(--accent-orange)" stroke-width="3"
-            stroke-dasharray="{norm * 113} {153 - norm * 113}" stroke-dashoffset="-20"
+            stroke-dasharray="{norm * 113} {153 - norm * 113}" stroke-dashoffset="0"
             transform="rotate(135, 30, 30)" />
     <!-- Knob body -->
     <circle cx="30" cy="30" r="18" fill="var(--bg-knob)" stroke="var(--border)" stroke-width="1" />

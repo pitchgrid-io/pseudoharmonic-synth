@@ -1,4 +1,8 @@
 #include "ConsonanceCurve.h"
+#include "../Network/OSCReceiver.h"
+#include <scalatrix/mos.hpp>
+#include <scalatrix/scale.hpp>
+#include <scalatrix/label_calculator.hpp>
 #include <algorithm>
 
 void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, float logBaseline)
@@ -85,4 +89,48 @@ void ConsonanceCurveCalculator::computeIntervals(const std::vector<float>& noteF
             data_.intervalConsonance.push_back(consonanceAt(cents));
         }
     }
+}
+
+std::vector<ScaleDegreeInfo> ConsonanceCurveCalculator::computeScaleDegrees(const TuningParams& tuning) const
+{
+    std::vector<ScaleDegreeInfo> result;
+
+    try
+    {
+        auto mos = scalatrix::MOS::fromParams(
+            tuning.mosA, tuning.mosB, tuning.mode,
+            tuning.stretch, tuning.skew, 1);
+
+        auto scale = mos.generateMappedScale(
+            tuning.steps, tuning.modeOffset, tuning.rootFreq, 128, 60);
+
+        auto& nodes = scale.getNodes();
+        if (nodes.empty() || nodes.size() <= 60) return result;
+
+        double rootPitch = nodes[60].pitch;
+        if (rootPitch <= 0.0) return result;
+
+        // Collect all nodes from root onwards that fall within the plot range
+        for (size_t i = 60; i < nodes.size(); ++i)
+        {
+            if (nodes[i].pitch <= 0.0) continue;
+
+            float cents = 1200.0f * std::log2(static_cast<float>(nodes[i].pitch / rootPitch));
+            if (cents > kCurveMaxCents) break;
+            if (cents < 0.0f) continue;
+
+            std::string label = mos.nodeLabelDigit(nodes[i].natural_coord);
+            float cons = consonanceAt(cents);
+            float ty = static_cast<float>(nodes[i].tuning_coord.y);
+            bool inScale = mos.nodeInScale(nodes[i].natural_coord);
+
+            result.push_back({cents, cons, std::move(label), 0.0f, ty, inScale});
+        }
+    }
+    catch (...)
+    {
+        // MOS construction can throw for invalid parameters
+    }
+
+    return result;
 }
