@@ -80,6 +80,12 @@
             <input type="checkbox" checked={$params.oscSendConsonance}
                    on:change={(e) => sendParam('oscSendConsonance', e.target.checked ? 1 : 0)} />
           </div>
+          <div class="settings-divider"></div>
+          <div class="settings-row">
+            <label>Show Ratio Labels</label>
+            <input type="checkbox" checked={$params.showRatioLabels}
+                   on:change={(e) => sendParam('showRatioLabels', e.target.checked ? 1 : 0)} />
+          </div>
         </div>
       {/if}
     </div>

@@ -72,6 +72,9 @@ private:
     std::atomic<bool> oscSendSpectrum_{true};      // default on
     std::atomic<bool> spectrumNeedsSend_{true};    // trigger initial send
 
+    // UI settings
+    std::atomic<bool> showRatioLabels_{false};
+
     static constexpr const char* paramIDs[] = {
         "stretch2", "stretch3", "stretch5", "stretch7",
         "decay", "release", "strikePos", "oddEven",

@@ -1,5 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <numeric>
+#include <set>
+#include <algorithm>
 
 static juce::NormalisableRange<float> makeLogRange(float min, float max, float centre)
 {
@@ -309,6 +312,7 @@ void PseudoHarmonicProcessor::handleParamFromUI(const std::string& id, float val
     // Non-APVTS params (MPE settings, OSC settings) — handle directly
     if (id == "oscSendConsonance") { oscSendConsonance_ = (value > 0.5f); return; }
     if (id == "oscSendSpectrum") { oscSendSpectrum_ = (value > 0.5f); spectrumNeedsSend_ = true; return; }
+    if (id == "showRatioLabels") { showRatioLabels_ = (value > 0.5f); paramsNeedBroadcast_ = true; return; }
 
     auto& p = engine_.params();
     if (id == "pitchBendRange") p.pitchBendRange = value;
@@ -409,6 +413,96 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     curveJson["maxCents"] = kCurveMaxCents;
     curveJson["resolution"] = kUIResolution;
 
+    // Compute peak ratio labels from pairwise partial intervals
+    {
+        // Store original (unreduced) ratio + reduced form for each entry
+        struct RatioEntry { float cents; int num; int den; int rp; int rq; };
+        std::vector<RatioEntry> entries;
+
+        for (int j = 1; j < numPartials; ++j)
+        {
+            if (std::abs(amps[j]) < 1e-6f) continue;
+            for (int i = 0; i < j; ++i)
+            {
+                if (std::abs(amps[i]) < 1e-6f) continue;
+                float ratio = ratios[j] / ratios[i];
+                if (ratio <= 1.0f) continue;
+                float cents = 1200.0f * std::log2(ratio);
+                if (cents < 0.0f || cents > kCurveMaxCents) continue;
+
+                int num = j + 1, den = i + 1;
+                int g = std::gcd(num, den);
+                entries.push_back({cents, num, den, num / g, den / g});
+            }
+        }
+
+        // Sort by cents
+        std::sort(entries.begin(), entries.end(),
+                  [](const RatioEntry& a, const RatioEntry& b) { return a.cents < b.cents; });
+
+        // Pass 1: form groups within 2 cents
+        struct Group { float avgCents; size_t begin; size_t end; };
+        std::vector<Group> groups;
+        size_t ei = 0;
+        while (ei < entries.size())
+        {
+            size_t ej = ei + 1;
+            float groupSum = entries[ei].cents;
+            while (ej < entries.size() && entries[ej].cents - entries[ei].cents < 2.0f)
+            {
+                groupSum += entries[ej].cents;
+                ++ej;
+            }
+            groups.push_back({groupSum / float(ej - ei), ei, ej});
+            ei = ej;
+        }
+
+        // Count how many groups each reduced form appears in
+        std::map<std::pair<int,int>, int> reducedGroupCount;
+        for (const auto& g : groups)
+        {
+            std::set<std::pair<int,int>> seen;
+            for (size_t k = g.begin; k < g.end; ++k)
+                seen.insert({entries[k].rp, entries[k].rq});
+            for (const auto& r : seen)
+                reducedGroupCount[r]++;
+        }
+
+        // Pass 2: build labels per group
+        // For each reduced form in a group:
+        //   - If that reduced form is unique to this group → show reduced (e.g., "2:1")
+        //   - If that reduced form appears in multiple groups (separated by warp) →
+        //     show the smallest original ratio from this group (e.g., "4:2")
+        nlohmann::json peakLabels = nlohmann::json::array();
+        for (const auto& g : groups)
+        {
+            // Collect reduced forms and their smallest original ratio in this group
+            std::map<std::pair<int,int>, std::pair<int,int>> reducedToSmallestOrig;
+            for (size_t k = g.begin; k < g.end; ++k)
+            {
+                auto rkey = std::make_pair(entries[k].rp, entries[k].rq);
+                auto orig = std::make_pair(entries[k].num, entries[k].den);
+                auto it = reducedToSmallestOrig.find(rkey);
+                if (it == reducedToSmallestOrig.end() || orig < it->second)
+                    reducedToSmallestOrig[rkey] = orig;
+            }
+
+            nlohmann::json labels = nlohmann::json::array();
+            for (const auto& [reduced, smallestOrig] : reducedToSmallestOrig)
+            {
+                if (reducedGroupCount[reduced] == 1)
+                    labels.push_back(std::to_string(reduced.first) + ":" + std::to_string(reduced.second));
+                else
+                    labels.push_back(std::to_string(smallestOrig.first) + ":" + std::to_string(smallestOrig.second));
+            }
+
+            float cons = curveCalc_.consonanceAt(g.avgCents);
+            if (cons > 1e-4f)
+                peakLabels.push_back({{"cents", g.avgCents}, {"consonance", cons}, {"labels", labels}});
+        }
+        curveJson["peakLabels"] = peakLabels;
+    }
+
     wsBridge_.sendCurveData(curveJson);
 }
 
@@ -438,7 +532,8 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"logBaseline", p.logBaseline},
         {"warp", p.warp},
         {"oscSendConsonance", oscSendConsonance_.load()},
-        {"oscSendSpectrum", oscSendSpectrum_.load()}
+        {"oscSendSpectrum", oscSendSpectrum_.load()},
+        {"showRatioLabels", showRatioLabels_.load()}
     };
     wsBridge_.sendParams(j);
 }
@@ -459,6 +554,7 @@ void PseudoHarmonicProcessor::getStateInformation(juce::MemoryBlock& destData)
     auto* osc = xml->createNewChildElement("OSCSettings");
     osc->setAttribute("sendConsonance", oscSendConsonance_.load() ? 1 : 0);
     osc->setAttribute("sendSpectrum", oscSendSpectrum_.load() ? 1 : 0);
+    osc->setAttribute("showRatioLabels", showRatioLabels_.load() ? 1 : 0);
 
     copyXmlToBinary(*xml, destData);
 }
@@ -486,6 +582,7 @@ void PseudoHarmonicProcessor::setStateInformation(const void* data, int sizeInBy
         {
             oscSendConsonance_ = osc->getIntAttribute("sendConsonance", 0) != 0;
             oscSendSpectrum_ = osc->getIntAttribute("sendSpectrum", 1) != 0;
+            showRatioLabels_ = osc->getIntAttribute("showRatioLabels", 0) != 0;
             xml->removeChildElement(osc, true);
         }
 

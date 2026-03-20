@@ -1,11 +1,25 @@
 <script>
-  import { curveData, intervals, scaleDegrees } from './ws.js';
+  import { curveData, intervals, scaleDegrees, params } from './ws.js';
 
   let canvas;
   let ctx;
   let w = 800, h = 300;
+  let mouseX = -1, mouseY = -1;
 
   $: if (canvas && $curveData) draw($curveData, $intervals, $scaleDegrees);
+
+  function handleMouseMove(e) {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+    if ($curveData) draw($curveData, $intervals, $scaleDegrees);
+  }
+
+  function handleMouseLeave() {
+    mouseX = -1;
+    mouseY = -1;
+    if ($curveData) draw($curveData, $intervals, $scaleDegrees);
+  }
 
   function draw(data, ivls, degs) {
     if (!canvas) return;
@@ -58,6 +72,41 @@
     // Draw consonance curve
     if (data.consonance) {
       drawFilledCurve(data.consonance, n, maxCents, 1.0, '#FFAB00', 1.5);
+    }
+
+    // Draw peak ratio labels
+    const peaks = data.peakLabels;
+    if (peaks && peaks.length > 0) {
+      const showAll = $params.showRatioLabels;
+      const baseline = h - 20;
+      const curveH = h - 30;
+      let lastDrawnX = -Infinity;
+
+      for (const peak of peaks) {
+        const px = (peak.cents / maxCents) * w;
+        const py = baseline - (peak.consonance / 1.0) * curveH;
+        const label = peak.labels.join(', ');
+
+        // Check hover proximity (10px radius)
+        const dx = mouseX - px;
+        const dy = mouseY - py;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const isHovered = (mouseX >= 0 && dist < 10);
+
+        if (isHovered || showAll) {
+          ctx.fillStyle = '#FFAB00';
+          ctx.font = 'bold 10px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, px, py - 8);
+
+          // Dot at peak tip
+          ctx.beginPath();
+          ctx.arc(px, py, 2, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (showAll) lastDrawnX = px;
+        }
+      }
     }
 
     // Draw scale degree lines and tuning nodes (from OSC tuning)
@@ -214,7 +263,8 @@
 </script>
 
 <div class="plot-container" use:onResize>
-  <canvas bind:this={canvas} style="width:100%;height:100%"></canvas>
+  <canvas bind:this={canvas} style="width:100%;height:100%;cursor:crosshair"
+          on:mousemove={handleMouseMove} on:mouseleave={handleMouseLeave}></canvas>
 </div>
 
 <style>
