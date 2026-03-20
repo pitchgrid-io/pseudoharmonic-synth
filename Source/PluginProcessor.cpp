@@ -208,8 +208,47 @@ void PseudoHarmonicProcessor::timerCallback()
         wsBridge_.sendIntervals(intervals);
     }
 
-    // Scale degrees from OSC tuning
+    // Send spectrum to plugin via OSC when connected and enabled
     bool oscConnected = oscReceiver_.isConnected();
+    if (oscConnected && oscSendSpectrum_.load() && (curveJustUpdated || spectrumNeedsSend_.exchange(false)))
+    {
+        const auto& ratios = engine_.getFreqRatios();
+        auto& p = engine_.params();
+
+        // Build amplitude array (same logic as sendCurveToUI)
+        std::array<float, kMaxHarmonics> amps{};
+        for (int h = 0; h < kMaxHarmonics; ++h)
+        {
+            float n = float(h + 1);
+            amps[h] = (1.0f / n) * std::sin(float(M_PI) * n * p.strikePos / 2.0f)
+                      * ((h + 1) % 2 == 0 ? p.oddEven : 1.0f);
+        }
+        float sum = 0;
+        for (int h = 0; h < p.numHarmonics; ++h) sum += std::abs(amps[h]);
+        if (sum > 0) for (int h = 0; h < p.numHarmonics; ++h) amps[h] /= sum;
+
+        int fullPartials = static_cast<int>(p.curvePartials);
+        float fracWeight = p.curvePartials - float(fullPartials);
+        for (int h = 0; h < kMaxHarmonics; ++h)
+        {
+            if (h < fullPartials) ;
+            else if (h == fullPartials) amps[h] *= fracWeight;
+            else amps[h] = 0.0f;
+        }
+
+        int numPartials = std::min(p.numHarmonics, fullPartials + (fracWeight > 0.0f ? 1 : 0));
+        std::vector<std::pair<float, float>> spectrum;
+        spectrum.reserve(numPartials);
+        for (int h = 0; h < numPartials; ++h)
+        {
+            float a = std::abs(amps[h]);
+            if (a > 1e-8f)
+                spectrum.push_back({ratios[h], a});
+        }
+        oscReceiver_.sendSpectrum(spectrum);
+    }
+
+    // Scale degrees from OSC tuning
     if (oscConnected)
     {
         auto ver = oscReceiver_.getTuningVersion();
@@ -230,6 +269,13 @@ void PseudoHarmonicProcessor::timerCallback()
                     {"ty", d.tuningY},
                     {"inScale", d.inScale}
                 });
+            }
+
+            // Compute and send node consonances back to plugin
+            if (oscSendConsonance_.load())
+            {
+                auto nodeConsonances = curveCalc_.computeNodeConsonances(tuning);
+                oscReceiver_.sendNodeConsonances(nodeConsonances);
             }
         }
         wsBridge_.sendScaleDegrees(cachedScaleDegrees_);
@@ -260,7 +306,10 @@ void PseudoHarmonicProcessor::handleParamFromUI(const std::string& id, float val
         return;
     }
 
-    // Non-APVTS params (MPE settings) — handle directly
+    // Non-APVTS params (MPE settings, OSC settings) — handle directly
+    if (id == "oscSendConsonance") { oscSendConsonance_ = (value > 0.5f); return; }
+    if (id == "oscSendSpectrum") { oscSendSpectrum_ = (value > 0.5f); spectrumNeedsSend_ = true; return; }
+
     auto& p = engine_.params();
     if (id == "pitchBendRange") p.pitchBendRange = value;
     else if (id == "mpeEnabled") p.mpeEnabled = (value > 0.5f);
@@ -387,7 +436,9 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"mpePerNoteBendRange", p.mpePerNoteBendRange},
         {"curvePartials", p.curvePartials},
         {"logBaseline", p.logBaseline},
-        {"warp", p.warp}
+        {"warp", p.warp},
+        {"oscSendConsonance", oscSendConsonance_.load()},
+        {"oscSendSpectrum", oscSendSpectrum_.load()}
     };
     wsBridge_.sendParams(j);
 }
@@ -404,6 +455,10 @@ void PseudoHarmonicProcessor::getStateInformation(juce::MemoryBlock& destData)
     midi->setAttribute("pitchBendRange", (double)p.pitchBendRange);
     midi->setAttribute("mpeMasterBendRange", (double)p.mpeMasterBendRange);
     midi->setAttribute("mpePerNoteBendRange", (double)p.mpePerNoteBendRange);
+
+    auto* osc = xml->createNewChildElement("OSCSettings");
+    osc->setAttribute("sendConsonance", oscSendConsonance_.load() ? 1 : 0);
+    osc->setAttribute("sendSpectrum", oscSendSpectrum_.load() ? 1 : 0);
 
     copyXmlToBinary(*xml, destData);
 }
@@ -425,6 +480,13 @@ void PseudoHarmonicProcessor::setStateInformation(const void* data, int sizeInBy
 
             // Remove before passing to APVTS so it doesn't see unknown elements
             xml->removeChildElement(midi, true);
+        }
+
+        if (auto* osc = xml->getChildByName("OSCSettings"))
+        {
+            oscSendConsonance_ = osc->getIntAttribute("sendConsonance", 0) != 0;
+            oscSendSpectrum_ = osc->getIntAttribute("sendSpectrum", 1) != 0;
+            xml->removeChildElement(osc, true);
         }
 
         apvts_.replaceState(juce::ValueTree::fromXml(*xml));

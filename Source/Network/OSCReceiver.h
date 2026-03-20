@@ -35,6 +35,13 @@ struct TuningParams
     int mosB = 2;
 };
 
+struct NodeConsonance
+{
+    int natX;           // natural_coord.x
+    int natY;           // natural_coord.y
+    float consonance;   // normalized consonance at this node's pitch
+};
+
 class OSCReceiver
 {
 public:
@@ -48,6 +55,9 @@ public:
     uint64_t getTuningVersion() const { return tuningVersion_.load(); }
     bool isConnected() const;
 
+    void sendNodeConsonances(const std::vector<NodeConsonance>& nodes);
+    void sendSpectrum(const std::vector<std::pair<float, float>>& partials); // (ratio, weight)
+
 private:
     void listenLoop();
     void heartbeatLoop();
@@ -60,6 +70,8 @@ private:
     static double readFloat64(const uint8_t* data, size_t& offset);
     static void writeOSCString(std::vector<uint8_t>& buf, const std::string& s);
     static void writeInt32(std::vector<uint8_t>& buf, int32_t v);
+    static void writeFloat32(std::vector<uint8_t>& buf, float v);
+    void sendPacket(const std::vector<uint8_t>& pkt);
 
     SOCKET socket_ = INVALID_SOCKET;
     uint16_t myPort_ = 0;

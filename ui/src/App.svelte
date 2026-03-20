@@ -69,6 +69,17 @@
               </select>
             </div>
           {/if}
+          <div class="settings-divider"></div>
+          <div class="settings-row">
+            <label>Send Spectrum (OSC)</label>
+            <input type="checkbox" checked={$params.oscSendSpectrum}
+                   on:change={(e) => sendParam('oscSendSpectrum', e.target.checked ? 1 : 0)} />
+          </div>
+          <div class="settings-row">
+            <label>Send Consonance (OSC)</label>
+            <input type="checkbox" checked={$params.oscSendConsonance}
+                   on:change={(e) => sendParam('oscSendConsonance', e.target.checked ? 1 : 0)} />
+          </div>
         </div>
       {/if}
     </div>
@@ -268,6 +279,10 @@
     font-size: 11px;
     color: var(--text-secondary);
     white-space: nowrap;
+  }
+  .settings-divider {
+    border-top: 1px solid var(--border);
+    margin: 2px 0;
   }
   .settings-row select {
     background: var(--bg-secondary);

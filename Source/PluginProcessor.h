@@ -67,6 +67,11 @@ private:
     std::atomic<bool> updatingLogBaseline_{false};
     std::atomic<float> peakLevel_{0.0f};
 
+    // OSC sending settings
+    std::atomic<bool> oscSendConsonance_{false};  // default off
+    std::atomic<bool> oscSendSpectrum_{true};      // default on
+    std::atomic<bool> spectrumNeedsSend_{true};    // trigger initial send
+
     static constexpr const char* paramIDs[] = {
         "stretch2", "stretch3", "stretch5", "stretch7",
         "decay", "release", "strikePos", "oddEven",

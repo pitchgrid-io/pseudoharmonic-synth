@@ -4,6 +4,7 @@
 #include <scalatrix/scale.hpp>
 #include <scalatrix/label_calculator.hpp>
 #include <algorithm>
+#include <map>
 
 void ConsonanceCurveCalculator::compute(const scalatrix::Spectrum& spectrum, float logBaseline)
 {
@@ -89,6 +90,62 @@ void ConsonanceCurveCalculator::computeIntervals(const std::vector<float>& noteF
             data_.intervalConsonance.push_back(consonanceAt(cents));
         }
     }
+}
+
+std::vector<NodeConsonance> ConsonanceCurveCalculator::computeNodeConsonances(const TuningParams& tuning) const
+{
+    std::vector<NodeConsonance> result;
+
+    try
+    {
+        // Build MOS with mode=0 and mode=n-1, same other params
+        auto mos0 = scalatrix::MOS::fromParams(
+            tuning.mosA, tuning.mosB, 0,
+            tuning.stretch, tuning.skew, 1);
+
+        int lastMode = mos0.n - 1;
+        auto mosN = scalatrix::MOS::fromParams(
+            tuning.mosA, tuning.mosB, lastMode,
+            tuning.stretch, tuning.skew, 1);
+
+        // Collect unique nodes by natural_coord from both base_scales
+        // base_scale has n+1 nodes: index 0 = root (0,0), index n = equave (a,b)
+        // Skip root (always consonance 1) and equave (same as root)
+        std::map<std::pair<int,int>, float> nodeMap; // natural_coord -> cents
+
+        auto addNodes = [&](const scalatrix::MOS& mos) {
+            auto& nodes = mos.base_scale.getNodes();
+            if (nodes.size() < 2) return;
+            double rootPitch = nodes[0].pitch;
+            if (rootPitch <= 0.0) return;
+
+            // Skip first (root) and last (equave) nodes
+            for (size_t i = 1; i < nodes.size() - 1; ++i)
+            {
+                if (nodes[i].pitch <= 0.0) continue;
+                float cents = 1200.0f * std::log2(static_cast<float>(nodes[i].pitch / rootPitch));
+                if (cents <= 0.0f || cents > kCurveMaxCents) continue;
+
+                auto key = std::make_pair(nodes[i].natural_coord.x, nodes[i].natural_coord.y);
+                nodeMap[key] = cents;
+            }
+        };
+
+        addNodes(mos0);
+        addNodes(mosN);
+
+        // Compute consonance at each node position
+        for (const auto& [coord, cents] : nodeMap)
+        {
+            float cons = consonanceAt(cents);
+            result.push_back({coord.first, coord.second, cons});
+        }
+    }
+    catch (...)
+    {
+    }
+
+    return result;
 }
 
 std::vector<ScaleDegreeInfo> ConsonanceCurveCalculator::computeScaleDegrees(const TuningParams& tuning) const

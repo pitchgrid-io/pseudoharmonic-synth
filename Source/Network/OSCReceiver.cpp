@@ -265,3 +265,68 @@ void OSCReceiver::writeInt32(std::vector<uint8_t>& buf, int32_t v)
     buf.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
     buf.push_back(static_cast<uint8_t>(v & 0xFF));
 }
+
+void OSCReceiver::writeFloat32(std::vector<uint8_t>& buf, float v)
+{
+    uint32_t bits;
+    std::memcpy(&bits, &v, sizeof(bits));
+    buf.push_back(static_cast<uint8_t>((bits >> 24) & 0xFF));
+    buf.push_back(static_cast<uint8_t>((bits >> 16) & 0xFF));
+    buf.push_back(static_cast<uint8_t>((bits >> 8) & 0xFF));
+    buf.push_back(static_cast<uint8_t>(bits & 0xFF));
+}
+
+void OSCReceiver::sendPacket(const std::vector<uint8_t>& pkt)
+{
+    if (socket_ != INVALID_SOCKET)
+    {
+        ::sendto(socket_, reinterpret_cast<const char*>(pkt.data()), pkt.size(), 0,
+                 reinterpret_cast<const sockaddr*>(&pluginAddr_), sizeof(pluginAddr_));
+    }
+}
+
+void OSCReceiver::sendNodeConsonances(const std::vector<NodeConsonance>& nodes)
+{
+    if (!running_.load() || socket_ == INVALID_SOCKET) return;
+
+    // Send as /pitchgrid/synth/consonance with triplets of (natX:i, natY:i, consonance:f)
+    std::vector<uint8_t> pkt;
+    writeOSCString(pkt, "/pitchgrid/synth/consonance");
+
+    // Build type tag string: ,iif iif iif ...
+    std::string tags = ",";
+    for (size_t i = 0; i < nodes.size(); ++i)
+        tags += "iif";
+    writeOSCString(pkt, tags);
+
+    for (const auto& node : nodes)
+    {
+        writeInt32(pkt, node.natX);
+        writeInt32(pkt, node.natY);
+        writeFloat32(pkt, node.consonance);
+    }
+
+    sendPacket(pkt);
+}
+
+void OSCReceiver::sendSpectrum(const std::vector<std::pair<float, float>>& partials)
+{
+    if (!running_.load() || socket_ == INVALID_SOCKET) return;
+
+    // Send as /pitchgrid/synth/spectrum with pairs of (ratio:f, weight:f)
+    std::vector<uint8_t> pkt;
+    writeOSCString(pkt, "/pitchgrid/synth/spectrum");
+
+    std::string tags = ",";
+    for (size_t i = 0; i < partials.size(); ++i)
+        tags += "ff";
+    writeOSCString(pkt, tags);
+
+    for (const auto& [ratio, weight] : partials)
+    {
+        writeFloat32(pkt, ratio);
+        writeFloat32(pkt, weight);
+    }
+
+    sendPacket(pkt);
+}

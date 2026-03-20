@@ -7,7 +7,8 @@ export const params = writable({
   decay: 2.0, release: 1.0, strikePos: 0.5, oddEven: 1.0,
   strike: 0.02, volume: 1.0, noiseMix: 0.0, detune: 1.0, relaxTime: 0.1,
   pitchBendRange: 2, mpeEnabled: false, mpeMasterBendRange: 2, mpePerNoteBendRange: 48,
-  curvePartials: 16, logBaseline: 0.5, warp: 32
+  curvePartials: 16, logBaseline: 0.5, warp: 32,
+  oscSendConsonance: false, oscSendSpectrum: true
 });
 export const curveData = writable(null);
 export const activeNotes = writable([]);

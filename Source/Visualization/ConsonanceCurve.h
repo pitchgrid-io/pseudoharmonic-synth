@@ -7,6 +7,7 @@
 #include <cmath>
 
 struct TuningParams;
+struct NodeConsonance;
 
 static constexpr int kCurveResolution = 4000;  // 0.5ct steps over 2000ct
 static constexpr float kCurveMaxCents = 2000.0f;
@@ -41,6 +42,7 @@ public:
     float getEffectiveLogBaseline() const { return effectiveLogBaseline_; }
     void computeIntervals(const std::vector<float>& noteFreqs);
     std::vector<ScaleDegreeInfo> computeScaleDegrees(const TuningParams& tuning) const;
+    std::vector<NodeConsonance> computeNodeConsonances(const TuningParams& tuning) const;
     const ConsonanceCurveData& getData() const { return data_; }
 
 private:
