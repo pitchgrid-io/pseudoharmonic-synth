@@ -11,6 +11,14 @@
   function send(id) {
     return (val) => sendParam(id, val);
   }
+
+  const stretchDev = 0.03;   // ±3% relative range
+  const stretchSteps = 126;  // 127 distinct values
+  function sr(prime) {
+    const lo = prime * (1 - stretchDev);
+    const hi = prime * (1 + stretchDev);
+    return { min: lo, max: hi, step: (hi - lo) / stretchSteps };
+  }
 </script>
 
 <div class="synth-ui">
@@ -102,14 +110,18 @@
     <div class="control-group">
       <h3>Spectrum</h3>
       <div class="knob-row">
-        <Knob label="2nd" value={$params.stretch2} min={1.9} max={2.1} step={0.001}
+        <Knob label="2nd" value={$params.stretch2} min={sr(2).min} max={sr(2).max} step={sr(2).step}
                onChange={send('stretch2')} />
-        <Knob label="3rd" value={$params.stretch3} min={2.9} max={3.1} step={0.001}
+        <Knob label="3rd" value={$params.stretch3} min={sr(3).min} max={sr(3).max} step={sr(3).step}
                onChange={send('stretch3')} />
-        <Knob label="5th" value={$params.stretch5} min={4.9} max={5.1} step={0.001}
+        <Knob label="5th" value={$params.stretch5} min={sr(5).min} max={sr(5).max} step={sr(5).step}
                onChange={send('stretch5')} />
-        <Knob label="7th" value={$params.stretch7} min={6.9} max={7.1} step={0.001}
+        <Knob label="7th" value={$params.stretch7} min={sr(7).min} max={sr(7).max} step={sr(7).step}
                onChange={send('stretch7')} />
+        <Knob label="11th" value={$params.stretch11} min={sr(11).min} max={sr(11).max} step={sr(11).step}
+               onChange={send('stretch11')} />
+        <Knob label="13th" value={$params.stretch13} min={sr(13).min} max={sr(13).max} step={sr(13).step}
+               onChange={send('stretch13')} />
         <Knob label="Warp" value={$params.warp} min={0} max={32} step={0.1}
                onChange={send('warp')} />
       </div>
@@ -119,7 +131,7 @@
     <div class="control-group">
       <h3>Timbre</h3>
       <div class="knob-row">
-        <Knob label="Strike" value={$params.strike} min={0.001} max={0.1} step={0.001} log={true}
+        <Knob label="Strike" value={$params.strike} min={0} max={1} step={0.01}
                onChange={send('strike')} />
         <Knob label="Strike Pos" value={$params.strikePos} min={0.01} max={1} step={0.01}
                onChange={send('strikePos')} />

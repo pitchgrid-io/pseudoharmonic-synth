@@ -16,16 +16,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout PseudoHarmonicProcessor::cre
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     constexpr int v = 1; // parameter version for VST3 host compatibility
+    constexpr float stretchDeviation = 0.03f;  // ±3% relative range
+    constexpr int   stretchSteps = 126;        // 127 distinct values
 
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch2",  v}, "Stretch 2nd",  juce::NormalisableRange<float>(1.9f, 2.1f, 0.001f), 2.0f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch3",  v}, "Stretch 3rd",  juce::NormalisableRange<float>(2.9f, 3.1f, 0.001f), 3.0f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch5",  v}, "Stretch 5th",  juce::NormalisableRange<float>(4.9f, 5.1f, 0.001f), 5.0f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch7",  v}, "Stretch 7th",  juce::NormalisableRange<float>(6.9f, 7.1f, 0.001f), 7.0f));
+    auto stretchRange = [](float prime, float dev, int steps) {
+        float lo = prime * (1.0f - dev);
+        float hi = prime * (1.0f + dev);
+        float step = (hi - lo) / float(steps);
+        return juce::NormalisableRange<float>(lo, hi, step);
+    };
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch2",  v}, "Stretch 2nd",  stretchRange(2.0f,  stretchDeviation, stretchSteps), 2.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch3",  v}, "Stretch 3rd",  stretchRange(3.0f,  stretchDeviation, stretchSteps), 3.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch5",  v}, "Stretch 5th",  stretchRange(5.0f,  stretchDeviation, stretchSteps), 5.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch7",  v}, "Stretch 7th",  stretchRange(7.0f,  stretchDeviation, stretchSteps), 7.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch11", v}, "Stretch 11th", stretchRange(11.0f, stretchDeviation, stretchSteps), 11.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"stretch13", v}, "Stretch 13th", stretchRange(13.0f, stretchDeviation, stretchSteps), 13.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"decay",     v}, "Decay",        makeLogRange(0.01f, 20.0f, 1.0f), 2.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"release",   v}, "Release",      makeLogRange(0.01f, 20.0f, 1.0f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"strikePos", v}, "Strike Pos",   juce::NormalisableRange<float>(0.01f, 1.0f, 0.01f), 0.5f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"oddEven",   v}, "Odd Even",     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"strike",    v}, "Strike",       makeLogRange(0.001f, 0.1f, 0.01f), 0.02f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"strike",    v}, "Strike",       juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.2f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"volume",    v}, "Volume",       makeLogRange(0.01f, 2.0f, 0.5f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"noiseMix",  v}, "Noise Mix",    juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"sustain",   v}, "Sustain",      juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
@@ -143,14 +154,16 @@ void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, 
     else if (parameterID == "stretch3")  p.stretch3 = newValue;
     else if (parameterID == "stretch5")  p.stretch5 = newValue;
     else if (parameterID == "stretch7")  p.stretch7 = newValue;
+    else if (parameterID == "stretch11") p.stretch11 = newValue;
+    else if (parameterID == "stretch13") p.stretch13 = newValue;
     else if (parameterID == "decay")     p.decay = newValue;
     else if (parameterID == "release")   p.release = newValue;
     else if (parameterID == "strikePos") p.strikePos = newValue;
     else if (parameterID == "oddEven")   p.oddEven = newValue;
-    else if (parameterID == "strike")    p.strike = newValue;
+    else if (parameterID == "strike")    p.strike = newValue * 0.1f;
     else if (parameterID == "volume")    p.volume = newValue;
     else if (parameterID == "noiseMix")  p.noiseMix = newValue;
-    else if (parameterID == "sustain")   p.sustain = newValue;
+    else if (parameterID == "sustain")   p.sustain = newValue * 0.1f;
     else if (parameterID == "detune")    p.detune = newValue;
     else if (parameterID == "relaxTime") p.relaxTime = newValue;
     else if (parameterID == "curvePartials") { p.curvePartials = newValue; autoLogBaseline_ = true; }
@@ -188,17 +201,23 @@ void PseudoHarmonicProcessor::timerCallback()
     auto notes = engine_.getActiveNotes();
     nlohmann::json noteArr = nlohmann::json::array();
     std::vector<float> freqs;
+    std::vector<int> midiNotes;
     for (const auto& n : notes)
     {
         noteArr.push_back({{"note", n.note}, {"freq", n.freq}, {"channel", n.channel}});
         freqs.push_back(n.freq);
+        midiNotes.push_back(n.note);
     }
     wsBridge_.sendActiveNotes(noteArr);
 
     // Compute interval lines
     if (!freqs.empty())
     {
-        curveCalc_.computeIntervals(freqs);
+        bool oscConnected = oscReceiver_.isConnected();
+        if (oscConnected && oscReceiver_.getTuningVersion() > 0)
+            curveCalc_.computeIntervals(freqs, midiNotes, oscReceiver_.getTuningParams());
+        else
+            curveCalc_.computeIntervals(freqs);
         const auto& data = curveCalc_.getData();
         nlohmann::json intervals = nlohmann::json::array();
         for (size_t i = 0; i < data.intervalCents.size(); ++i)
@@ -514,14 +533,16 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"stretch3", p.stretch3},
         {"stretch5", p.stretch5},
         {"stretch7", p.stretch7},
+        {"stretch11", p.stretch11},
+        {"stretch13", p.stretch13},
         {"decay", p.decay},
         {"release", p.release},
         {"strikePos", p.strikePos},
         {"oddEven", p.oddEven},
-        {"strike", p.strike},
+        {"strike", p.strike / 0.1f},
         {"volume", p.volume},
         {"noiseMix", p.noiseMix},
-        {"sustain", p.sustain},
+        {"sustain", p.sustain / 0.1f},
         {"detune", p.detune},
         {"relaxTime", p.relaxTime},
         {"pitchBendRange", p.pitchBendRange},

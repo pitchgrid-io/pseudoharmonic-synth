@@ -25,7 +25,7 @@
 
   $: norm = toNorm(value);
   $: angle = -135 + norm * 270;
-  $: displayVal = value < 10 ? value.toFixed(3) : value.toFixed(1);
+  $: displayVal = value.toFixed(3);
 
   let dragStyle = null;
 

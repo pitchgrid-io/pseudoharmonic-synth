@@ -16,6 +16,8 @@ struct SynthParams
     float stretch3 = 3.0f;
     float stretch5 = 5.0f;
     float stretch7 = 7.0f;
+    float stretch11 = 11.0f;
+    float stretch13 = 13.0f;
 
     // Envelope
     float decay = 2.0f;       // seconds (higher harmonics decay faster)

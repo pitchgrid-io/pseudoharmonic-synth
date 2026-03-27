@@ -85,7 +85,35 @@ void ConsonanceCurveCalculator::computeIntervals(const std::vector<float>& noteF
             float higher = std::max(noteFreqs[i], noteFreqs[j]);
             float lower = std::min(noteFreqs[i], noteFreqs[j]);
             float cents = 1200.0f * std::log2(higher / lower);
-            while (cents > kCurveMaxCents) cents -= kCurveMaxCents;
+            if (cents > kCurveMaxCents) continue;
+            data_.intervalCents.push_back(cents);
+            data_.intervalConsonance.push_back(consonanceAt(cents));
+        }
+    }
+}
+
+void ConsonanceCurveCalculator::computeIntervals(const std::vector<float>& noteFreqs,
+                                                  const std::vector<int>& /* midiNotes */,
+                                                  const TuningParams& tuning)
+{
+    data_.intervalCents.clear();
+    data_.intervalConsonance.clear();
+
+    float equaveCents = float(tuning.stretch * 1200.0);
+
+    for (size_t i = 0; i < noteFreqs.size(); ++i)
+    {
+        for (size_t j = i + 1; j < noteFreqs.size(); ++j)
+        {
+            float higher = std::max(noteFreqs[i], noteFreqs[j]);
+            float lower = std::min(noteFreqs[i], noteFreqs[j]);
+            float cents = 1200.0f * std::log2(higher / lower);
+
+            // Reduce by equave until within [0, equaveCents)
+            if (equaveCents > 0.0f)
+                while (cents > kCurveMaxCents) cents -= equaveCents;
+
+            if (cents > kCurveMaxCents || cents < 0.0f) continue;
             data_.intervalCents.push_back(cents);
             data_.intervalConsonance.push_back(consonanceAt(cents));
         }

@@ -73,10 +73,10 @@ private:
     std::atomic<bool> spectrumNeedsSend_{true};    // trigger initial send
 
     // UI settings
-    std::atomic<bool> showRatioLabels_{false};
+    std::atomic<bool> showRatioLabels_{true};
 
     static constexpr const char* paramIDs[] = {
-        "stretch2", "stretch3", "stretch5", "stretch7",
+        "stretch2", "stretch3", "stretch5", "stretch7", "stretch11", "stretch13",
         "decay", "release", "strikePos", "oddEven",
         "strike", "volume", "noiseMix", "sustain", "detune", "relaxTime",
         "curvePartials", "logBaseline", "warp"

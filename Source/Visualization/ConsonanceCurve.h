@@ -41,6 +41,9 @@ public:
     float consonanceAt(float cents) const;
     float getEffectiveLogBaseline() const { return effectiveLogBaseline_; }
     void computeIntervals(const std::vector<float>& noteFreqs);
+    void computeIntervals(const std::vector<float>& noteFreqs,
+                          const std::vector<int>& midiNotes,
+                          const TuningParams& tuning);
     std::vector<ScaleDegreeInfo> computeScaleDegrees(const TuningParams& tuning) const;
     std::vector<NodeConsonance> computeNodeConsonances(const TuningParams& tuning) const;
     const ConsonanceCurveData& getData() const { return data_; }

@@ -36,8 +36,8 @@ void PseudoHarmonicEngine::paramsChanged()
             else if (newG > 1e-10f)
                 v.x[h] = std::complex<float>(0.0f, 0.0f); // was silent, stays silent
 
-            // Update sustain level from current amplitude
-            v.sustainLevel[h] = params_.sustain * std::abs(v.x[h]);
+            // Update sustain level relative to harmonic gains
+            v.sustainLevel[h] = params_.sustain * v.velocity * harmonicGains_[h];
         }
     }
 
@@ -72,6 +72,8 @@ void PseudoHarmonicEngine::recomputeFreqRatios()
                 case 3: pseudo *= params_.stretch3 / 3.0f; break;
                 case 5: pseudo *= params_.stretch5 / 5.0f; break;
                 case 7: pseudo *= params_.stretch7 / 7.0f; break;
+                case 11: pseudo *= params_.stretch11 / 11.0f; break;
+                case 13: pseudo *= params_.stretch13 / 13.0f; break;
                 default: break;
             }
         }
@@ -201,9 +203,9 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
     v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
     v.impact(impactVec_, velocity);
 
-    // Compute per-harmonic sustain levels from post-impact amplitude
+    // Sustain levels relative to harmonic gains (independent of strike)
     for (int h = 0; h < kMaxHarmonics; ++h)
-        v.sustainLevel[h] = params_.sustain * std::abs(v.x[h]);
+        v.sustainLevel[h] = params_.sustain * velocity * harmonicGains_[h];
 
     // Recompute rotation so sustainExcitation reflects the sustain levels
     v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
@@ -344,9 +346,17 @@ void PseudoHarmonicEngine::processBlock(float* outputL, float* outputR, int numS
             sample += v.processSample();
 
             // Check if voice has decayed enough to deactivate
-            if (v.releasing && v.energy() < 1e-10f)
+            if (v.energy() < 1e-10f)
             {
-                v.active = false;
+                // Releasing voices with no energy are done
+                // Non-releasing voices with no sustain excitation are also done
+                bool hasSustain = false;
+                if (!v.releasing)
+                    for (int h = 0; h < kMaxHarmonics; ++h)
+                        if (v.sustainExcitation[h] > 0.0f) { hasSustain = true; break; }
+
+                if (v.releasing || !hasSustain)
+                    v.active = false;
             }
         }
         outputL[i] = sample * params_.volume;

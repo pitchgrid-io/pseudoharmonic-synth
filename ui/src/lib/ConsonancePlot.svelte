@@ -167,6 +167,7 @@
     if (ivls && ivls.length > 0) {
       for (const iv of ivls) {
         const cents = iv.cents || iv;
+        if (cents < 0 || cents > maxCents) continue;
         const cons = iv.consonance || 0;
         const x = (cents / maxCents) * w;
 
