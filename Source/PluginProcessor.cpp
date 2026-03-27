@@ -211,7 +211,7 @@ void PseudoHarmonicProcessor::timerCallback()
     wsBridge_.sendActiveNotes(noteArr);
 
     // Compute interval lines
-    if (!freqs.empty())
+    if (freqs.size() >= 2)
     {
         bool oscConnected = oscReceiver_.isConnected();
         if (oscConnected && oscReceiver_.getTuningVersion() > 0)
@@ -228,6 +228,10 @@ void PseudoHarmonicProcessor::timerCallback()
             });
         }
         wsBridge_.sendIntervals(intervals);
+    }
+    else
+    {
+        wsBridge_.sendIntervals(nlohmann::json::array());
     }
 
     // Send spectrum to plugin via OSC when connected and enabled
