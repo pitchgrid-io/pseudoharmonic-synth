@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(PseudoHarmonicSynth VERSION 0.2.0)
+project(PseudoHarmonicSynth VERSION 0.2.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +36,7 @@ juce_add_plugin(PseudoHarmonicSynth
     NEEDS_MIDI_INPUT TRUE
     PLUGIN_MANUFACTURER_CODE PtGd
     PLUGIN_CODE PhSy
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon_512.png"
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD TRUE
 )
@@ -176,6 +177,23 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebI
     endif()
 else()
     message(STATUS "Debug build - webview will use local development server")
+endif()
+
+# Replace JUCE-generated Icon.icns with full multi-resolution version if available
+set(FULL_ICNS "${CMAKE_CURRENT_SOURCE_DIR}/assets/Icon.icns")
+if(APPLE AND EXISTS "${FULL_ICNS}")
+    set(ARTEFACTS_DIR "${CMAKE_BINARY_DIR}/PseudoHarmonicSynth_artefacts/$<CONFIG>")
+    foreach(BUNDLE
+        "${ARTEFACTS_DIR}/Standalone/PseudoHarmonic.app"
+        "${ARTEFACTS_DIR}/AU/PseudoHarmonic.component"
+        "${ARTEFACTS_DIR}/VST3/PseudoHarmonic.vst3")
+        add_custom_command(TARGET PseudoHarmonicSynth POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${FULL_ICNS}"
+                "${BUNDLE}/Contents/Resources/Icon.icns"
+            COMMENT "Installing full-resolution icon into ${BUNDLE}"
+        )
+    endforeach()
 endif()
 
 target_link_libraries(PseudoHarmonicSynth

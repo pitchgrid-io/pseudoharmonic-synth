@@ -1,5 +1,7 @@
 build/
 build-debug/
+build-release-arm64/
+build-release-x86_64/
 Assets/
 ui/node_modules/
 ui/dist/
@@ -7,3 +9,13 @@ ui/dist/
 *.o
 tools/render_sample
 .DS_Store
+
+# Secrets
+.env
+
+# Distributable artifacts (built, not sources)
+*.dmg
+Installers/
+
+# Local tooling
+.claude/
