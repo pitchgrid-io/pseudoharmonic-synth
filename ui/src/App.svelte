@@ -99,6 +99,13 @@
             <input type="checkbox" checked={$params.showRatioLabels}
                    on:change={(e) => sendParam('showRatioLabels', e.target.checked ? 1 : 0)} />
           </div>
+          {#if $params.buildTimestamp}
+            <div class="settings-divider"></div>
+            <div class="settings-row build-info">
+              <label>Build</label>
+              <span>{$params.buildTimestamp} UTC</span>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -313,6 +320,11 @@
   .settings-divider {
     border-top: 1px solid var(--border);
     margin: 2px 0;
+  }
+  .build-info span {
+    font-size: 10px;
+    color: var(--text-secondary);
+    opacity: 0.6;
   }
   .settings-row select {
     background: var(--bg-secondary);

@@ -219,7 +219,17 @@ void PseudoHarmonicEngine::noteOff(int note, int mpeChannel)
     {
         if (v.active && v.midiNote == note && v.mpeChannel == mpeChannel && !v.releasing)
         {
-            if (mpeChannel >= 1 && mpeChannel <= 16 && sustainOn_[mpeChannel - 1])
+            // Sustain may arrive on a different channel than notes (e.g. MPE master ch1,
+            // or controller always sends CC on ch1 while DAW routes notes elsewhere).
+            // Check the note's own channel first, then fall back to channel 1.
+            bool held = false;
+            if (mpeChannel >= 1 && mpeChannel <= 16)
+            {
+                held = sustainOn_[mpeChannel - 1];
+                if (!held && mpeChannel != 1)
+                    held = sustainOn_[0];
+            }
+            if (held)
             {
                 v.sustained = true;
             }
@@ -293,10 +303,16 @@ void PseudoHarmonicEngine::sustainPedal(bool on, int channel)
 
     if (!on)
     {
-        // Release all sustained voices on this channel
+        // Release all sustained voices on this channel.
+        // Channel 1 sustain release affects voices on all channels (MPE master or
+        // controller that always sends CC on ch1 while notes are on other channels).
         for (auto& v : voices_)
         {
-            if (v.active && v.sustained && v.mpeChannel == channel)
+            if (!v.active || !v.sustained) continue;
+            bool match = (v.mpeChannel == channel);
+            if (!match && channel == 1)
+                match = true;
+            if (match)
             {
                 v.sustained = false;
                 v.noteOff();

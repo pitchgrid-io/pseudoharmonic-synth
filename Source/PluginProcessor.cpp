@@ -106,13 +106,13 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         auto msg = metadata.getMessage();
 
         // DIAG: log all MIDI to file
-        {
-            static juce::File logFile("/tmp/ph_midi_log.txt");
-            static bool firstWrite = true;
-            if (firstWrite) { logFile.replaceWithText("PseudoHarmonic MIDI Log\n"); firstWrite = false; }
-            auto desc = msg.getDescription();
-            logFile.appendText(desc + "\n");
-        }
+        // {
+        //     static juce::File logFile("/tmp/ph_midi_log.txt");
+        //     static bool firstWrite = true;
+        //     if (firstWrite) { logFile.replaceWithText("PseudoHarmonic MIDI Log\n"); firstWrite = false; }
+        //     auto desc = msg.getDescription();
+        //     logFile.appendText(desc + "\n");
+        // }
 
         if (msg.isNoteOn())
             engine_.noteOn(msg.getNoteNumber(), msg.getFloatVelocity(), msg.getChannel());
@@ -558,7 +558,8 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"warp", p.warp},
         {"oscSendConsonance", oscSendConsonance_.load()},
         {"oscSendSpectrum", oscSendSpectrum_.load()},
-        {"showRatioLabels", showRatioLabels_.load()}
+        {"showRatioLabels", showRatioLabels_.load()},
+        {"buildTimestamp", PH_BUILD_TIMESTAMP}
     };
     wsBridge_.sendParams(j);
 }
