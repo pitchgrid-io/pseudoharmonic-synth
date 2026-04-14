@@ -51,6 +51,12 @@ PseudoHarmonicEditor::PseudoHarmonicEditor(PseudoHarmonicProcessor& p)
     : AudioProcessorEditor(p),
       processor(p),
       webComponent{juce::WebBrowserComponent::Options{}
+#if JUCE_WINDOWS
+                       .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
+                       .withWinWebView2Options(juce::WebBrowserComponent::Options::WinWebView2{}
+                           .withUserDataFolder(juce::File::getSpecialLocation(juce::File::tempDirectory))
+                           .withBackgroundColour(juce::Colour(0xff0a0a0f)))
+#endif
                        .withNativeIntegrationEnabled()
 #ifdef NDEBUG
                        .withResourceProvider([this](const auto& url) { return getResource(url); })

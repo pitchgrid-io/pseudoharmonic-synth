@@ -36,12 +36,23 @@ if (Test-Path $vsWhere) {
 
 $BuildDir = "build-release-win"
 
+# Resolve node/npm paths for CMake (find_program may miss them on Windows)
+$cmakeExtraArgs = @()
+$nodePath = (Get-Command node -ErrorAction SilentlyContinue).Source
+$npmPath = (Get-Command npm -ErrorAction SilentlyContinue).Source
+if ($npmPath -and $npmPath.EndsWith(".ps1")) {
+    $npmPath = $npmPath -replace '\.ps1$', '.cmd'
+}
+if ($nodePath) { $cmakeExtraArgs += "-DNODE_EXECUTABLE=$nodePath" }
+if ($npmPath)  { $cmakeExtraArgs += "-DNPM_EXECUTABLE=$npmPath" }
+
 # Configure
 Write-Host ""
 Write-Host "Configuring CMake..." -ForegroundColor Yellow
 cmake -B $BuildDir `
     -DCMAKE_BUILD_TYPE=Release `
-    -A x64
+    -A x64 `
+    @cmakeExtraArgs
 
 # Build
 Write-Host ""

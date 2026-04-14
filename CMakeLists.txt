@@ -10,6 +10,48 @@ if(UNIX AND NOT APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 endif()
 
+# Handle WebView2 for Windows
+if(WIN32)
+    set(WEBVIEW2_VERSION "1.0.3485.44")
+    set(WEBVIEW2_CACHE_DIR "${CMAKE_BINARY_DIR}/_deps")
+    file(GLOB EXISTING_WEBVIEW2 "${WEBVIEW2_CACHE_DIR}/*Microsoft.Web.WebView2*")
+
+    if(NOT EXISTING_WEBVIEW2)
+        message(STATUS "WebView2 package not found. Downloading...")
+        set(WEBVIEW2_URL "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/${WEBVIEW2_VERSION}")
+        set(WEBVIEW2_ZIP "${WEBVIEW2_CACHE_DIR}/webview2_temp.zip")
+
+        file(DOWNLOAD "${WEBVIEW2_URL}" "${WEBVIEW2_ZIP}"
+             STATUS DOWNLOAD_STATUS
+             SHOW_PROGRESS)
+
+        list(GET DOWNLOAD_STATUS 0 DOWNLOAD_STATUS_CODE)
+        list(GET DOWNLOAD_STATUS 1 DOWNLOAD_ERROR)
+
+        if(DOWNLOAD_STATUS_CODE EQUAL 0)
+            set(EXTRACT_DIR "${WEBVIEW2_CACHE_DIR}/Microsoft.Web.WebView2.${WEBVIEW2_VERSION}")
+            file(MAKE_DIRECTORY "${EXTRACT_DIR}")
+            execute_process(
+                COMMAND ${CMAKE_COMMAND} -E tar xf "${WEBVIEW2_ZIP}"
+                WORKING_DIRECTORY "${EXTRACT_DIR}"
+                RESULT_VARIABLE EXTRACT_RESULT
+            )
+            if(EXTRACT_RESULT EQUAL 0)
+                file(REMOVE "${WEBVIEW2_ZIP}")
+                message(STATUS "WebView2 ${WEBVIEW2_VERSION} downloaded and extracted")
+            else()
+                message(FATAL_ERROR "Failed to extract WebView2 package")
+            endif()
+        else()
+            message(FATAL_ERROR "Failed to download WebView2 package: ${DOWNLOAD_ERROR}")
+        endif()
+    else()
+        message(STATUS "Found existing WebView2 package: ${EXISTING_WEBVIEW2}")
+    endif()
+
+    set(JUCE_WEBVIEW2_PACKAGE_LOCATION "${WEBVIEW2_CACHE_DIR}" CACHE PATH "WebView2 package location" FORCE)
+endif()
+
 # JUCE (git submodule)
 add_subdirectory(JUCE)
 
@@ -39,6 +81,7 @@ juce_add_plugin(PseudoHarmonicSynth
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon_512.png"
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD TRUE
+    NEEDS_WEBVIEW2 TRUE
 )
 
 target_sources(PseudoHarmonicSynth PRIVATE
@@ -85,6 +128,11 @@ target_compile_definitions(PseudoHarmonicSynth PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_VST3_EMULATE_MIDI_CC_WITH_PARAMETERS=1
+    $<$<CXX_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>
+    $<$<CXX_COMPILER_ID:MSVC>:NOMINMAX>
+    $<$<PLATFORM_ID:Windows>:JUCE_USE_WIN_WEBVIEW2=1>
+    $<$<PLATFORM_ID:Windows>:JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1>
+    $<$<PLATFORM_ID:Windows>:JUCE_ASIO=1>
 )
 
 if(UNIX AND NOT APPLE)
@@ -100,8 +148,10 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebI
     set(WEBVIEW_DIST_DIR "${WEBVIEW_DIR}/dist")
     set(WEBVIEW_ZIP_OUTPUT "${CMAKE_SOURCE_DIR}/Assets/webview-gui.zip")
 
-    find_program(NODE_EXECUTABLE node)
-    find_program(NPM_EXECUTABLE npm)
+    find_program(NODE_EXECUTABLE NAMES node
+        HINTS "$ENV{NVM_HOME}" "$ENV{NVM_SYMLINK}" "C:/nvm4w/nodejs" "C:/Program Files/nodejs")
+    find_program(NPM_EXECUTABLE NAMES npm npm.cmd
+        HINTS "$ENV{NVM_HOME}" "$ENV{NVM_SYMLINK}" "C:/nvm4w/nodejs" "C:/Program Files/nodejs")
 
     if(NODE_EXECUTABLE AND NPM_EXECUTABLE)
         execute_process(
