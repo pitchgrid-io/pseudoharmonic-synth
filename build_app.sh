@@ -33,7 +33,7 @@ if [ -f .env ]; then
 fi
 
 APP_NAME="${APP_NAME:-PseudoHarmonic}"
-APP_VERSION="${APP_VERSION:-0.2.1}"
+APP_VERSION="${APP_VERSION:-0.3.0}"
 
 echo "Building ${APP_NAME} v${APP_VERSION} for ${ARCH}..."
 

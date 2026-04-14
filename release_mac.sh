@@ -16,7 +16,7 @@ if [ -f .env ]; then
     set +a
 fi
 
-VERSION="${APP_VERSION:-0.2.1}"
+VERSION="${APP_VERSION:-0.3.0}"
 echo "Version: ${VERSION}"
 echo ""
 

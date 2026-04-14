@@ -32,7 +32,7 @@ if [ -f .env ]; then
 fi
 
 APP_NAME="${APP_NAME:-PseudoHarmonic}"
-APP_VERSION="${APP_VERSION:-0.2.1}"
+APP_VERSION="${APP_VERSION:-0.3.0}"
 PKG_NAME="${APP_NAME}-${APP_VERSION}-${ARCH}"
 PKG_PATH="${PKG_NAME}.pkg"
 

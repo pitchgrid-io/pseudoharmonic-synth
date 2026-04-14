@@ -12,7 +12,7 @@ if [ -f .env ]; then
 fi
 
 APP_NAME="${APP_NAME:-PseudoHarmonic}"
-VERSION="${APP_VERSION:-0.2.1}"
+VERSION="${APP_VERSION:-0.3.0}"
 
 # Find all installer packages for this version
 ASSETS=()
