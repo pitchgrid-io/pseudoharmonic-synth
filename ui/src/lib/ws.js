@@ -9,12 +9,13 @@ export const params = writable({
   pitchBendRange: 2, mpeEnabled: false, mpeMasterBendRange: 2, mpePerNoteBendRange: 48,
   curvePartials: 16, logBaseline: 0.5, warp: 32,
   oscSendConsonance: false, oscSendSpectrum: true,
-  showRatioLabels: true
+  showRatioLabels: true, followTuning: false, oscConnected: false
 });
 export const curveData = writable(null);
 export const activeNotes = writable([]);
 export const intervals = writable([]);
 export const scaleDegrees = writable([]);
+export const followTuningInfo = writable([]);
 export const outputLevel = writable(0);
 
 let ws = null;
@@ -51,6 +52,7 @@ function connectWS(port) {
         else if (msg.type === 'notes') activeNotes.set(msg.data);
         else if (msg.type === 'intervals') intervals.set(msg.data);
         else if (msg.type === 'scaleDegrees') scaleDegrees.set(msg.data);
+        else if (msg.type === 'followTuningInfo') followTuningInfo.set(msg.data);
         else if (msg.type === 'level') outputLevel.set(msg.value);
       } catch (e) {}
     };

@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { init, sendParam, params, activeNotes, outputLevel } from './lib/ws.js';
+  import { init, sendParam, params, activeNotes, outputLevel, followTuningInfo } from './lib/ws.js';
   import Knob from './lib/Knob.svelte';
   import ConsonancePlot from './lib/ConsonancePlot.svelte';
 
@@ -39,6 +39,19 @@
         </span>
       {/each}
     </div>
+    {#if $params.oscConnected}
+    <button
+      class="follow-tuning-btn"
+      class:active={$params.followTuning}
+      on:click={() => sendParam('followTuning', $params.followTuning ? 0 : 1)}
+      title="Follow Tuning"
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M4.5 1v5.268A1.5 1.5 0 0 0 4 7.5v1A1.5 1.5 0 0 0 5.5 10h.028a3.5 3.5 0 0 0 4.944 0H10.5A1.5 1.5 0 0 0 12 8.5v-1a1.5 1.5 0 0 0-.5-1.118V1h-2v5h-3V1h-2zm1 7.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H6a.5.5 0 0 1-.5-.5v-1zM8 13a2.5 2.5 0 0 1-2.45-2h4.9A2.5 2.5 0 0 1 8 13z"/>
+      </svg>
+      <span class="follow-label">Follow Tuning</span>
+    </button>
+    {/if}
     <div class="settings-wrapper">
       <button class="settings-btn" on:click={() => showSettings = !showSettings}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -115,6 +128,39 @@
   <section class="viz-section">
     <ConsonancePlot />
   </section>
+
+  {#if $params.followTuning && $followTuningInfo.length > 0}
+  <section class="follow-tuning-info">
+    <table>
+      <thead>
+        <tr>
+          <th>Prime</th>
+          <th>Ratio</th>
+          <th>Degree</th>
+          <th>Node X</th>
+          <th>Deviation</th>
+          <th>Adjusted</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each $followTuningInfo as entry}
+        <tr class:clamped={entry.clamped} class:no-solution={entry.noSolution}>
+          <td>{entry.prime}</td>
+          {#if entry.noSolution}
+            <td colspan="4" class="no-solution-text">--</td>
+          {:else}
+            <td class="ratio">{entry.chosenRatio}</td>
+            <td>{entry.scaleDegree}</td>
+            <td>{entry.nodeX.toFixed(5)}</td>
+            <td>{(entry.deviation * 1200).toFixed(2)} ct</td>
+          {/if}
+          <td>{entry.adjustedVal.toFixed(5)}</td>
+        </tr>
+        {/each}
+      </tbody>
+    </table>
+  </section>
+  {/if}
 
   <!-- Controls -->
   <section class="controls">
@@ -274,6 +320,70 @@
     justify-content: center;
   }
 
+  .follow-tuning-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    margin-right: 6px;
+    white-space: nowrap;
+  }
+  .follow-tuning-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+  }
+  .follow-tuning-btn.active {
+    color: #0D75FF;
+    border-color: #0D75FF;
+    background: rgba(13, 117, 255, 0.1);
+  }
+  .follow-label {
+    line-height: 1;
+  }
+  .follow-tuning-info {
+    padding: 0 16px 4px;
+  }
+  .follow-tuning-info table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10px;
+    font-family: 'Inter', monospace;
+  }
+  .follow-tuning-info th {
+    color: var(--text-secondary);
+    font-weight: 500;
+    text-align: left;
+    padding: 2px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .follow-tuning-info td {
+    color: var(--text-primary);
+    padding: 2px 8px;
+  }
+  .follow-tuning-info .ratio {
+    color: #0D75FF;
+    font-weight: 600;
+  }
+  .follow-tuning-info tr.clamped td {
+    color: #FF4444;
+  }
+  .follow-tuning-info tr.clamped .ratio {
+    color: #FF4444;
+  }
+  .follow-tuning-info tr.no-solution td {
+    color: var(--text-secondary);
+    opacity: 0.5;
+  }
+  .follow-tuning-info .no-solution-text {
+    text-align: center;
+    font-style: italic;
+  }
   .settings-wrapper {
     position: relative;
   }

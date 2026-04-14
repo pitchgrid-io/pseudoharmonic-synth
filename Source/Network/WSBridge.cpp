@@ -111,6 +111,12 @@ void WSBridge::sendScaleDegrees(const json& degrees)
     broadcast(msg.dump());
 }
 
+void WSBridge::sendFollowTuningInfo(const json& info)
+{
+    json msg = {{"type", "followTuningInfo"}, {"data", info}};
+    broadcast(msg.dump());
+}
+
 void WSBridge::sendLevel(float peak)
 {
     json msg = {{"type", "level"}, {"value", peak}};

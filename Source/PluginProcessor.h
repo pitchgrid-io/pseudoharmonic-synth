@@ -49,6 +49,7 @@ private:
     void handleParamFromUI(const std::string& id, float value);
     void sendCurveToUI();
     void sendParamsToUI();
+    void applyFollowTuning(const TuningParams& tuning);
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -74,6 +75,10 @@ private:
 
     // UI settings
     std::atomic<bool> showRatioLabels_{true};
+    std::atomic<bool> followTuning_{false};
+
+    // Follow-tuning debug info (updated by applyFollowTuning, read by timerCallback)
+    nlohmann::json followTuningInfo_;
 
     static constexpr const char* paramIDs[] = {
         "stretch2", "stretch3", "stretch5", "stretch7", "stretch11", "stretch13",

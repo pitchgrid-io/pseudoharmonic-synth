@@ -32,6 +32,7 @@ public:
     void sendActiveNotes(const json& notes);
     void sendIntervals(const json& intervals);
     void sendScaleDegrees(const json& degrees);
+    void sendFollowTuningInfo(const json& info);
     void sendLevel(float peak);
 
     // Callback when UI changes a parameter

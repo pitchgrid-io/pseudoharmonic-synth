@@ -1,5 +1,5 @@
 <script>
-  import { curveData, intervals, scaleDegrees, params } from './ws.js';
+  import { curveData, intervals, scaleDegrees, params, followTuningInfo } from './ws.js';
 
   let canvas;
   let ctx;
@@ -82,10 +82,25 @@
       const curveH = h - 30;
       let lastDrawnX = -Infinity;
 
+      // Build map of chosen follow-tuning ratios -> clamped status for highlighting
+      const ftInfo = $followTuningInfo;
+      const chosenRatios = new Map(); // ratio name -> { clamped }
+      if (ftInfo && ftInfo.length > 0) {
+        for (const entry of ftInfo) {
+          if (entry.chosenRatio)
+            chosenRatios.set(entry.chosenRatio, { clamped: entry.clamped });
+        }
+      }
+
+      const ftColor = (ratio) => {
+        const info = chosenRatios.get(ratio);
+        if (!info) return null; // not a chosen ratio
+        return info.clamped ? '#FF4444' : '#0D75FF';
+      };
+
       for (const peak of peaks) {
         const px = (peak.cents / maxCents) * w;
         const py = baseline - (peak.consonance / 1.0) * curveH;
-        const label = peak.labels.join(', ');
 
         // Check hover proximity (10px radius)
         const dx = mouseX - px;
@@ -94,12 +109,43 @@
         const isHovered = (mouseX >= 0 && dist < 10);
 
         if (isHovered || showAll) {
-          ctx.fillStyle = '#FFAB00';
           ctx.font = 'bold 10px Inter, sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText(label, px, py - 8);
+
+          // Render each label individually to allow per-ratio highlighting
+          if (chosenRatios.size > 0 && peak.labels.length > 1) {
+            const parts = [];
+            for (let i = 0; i < peak.labels.length; i++) {
+              const lbl = peak.labels[i];
+              const sep = i < peak.labels.length - 1 ? ', ' : '';
+              parts.push({ text: lbl, sep, color: ftColor(lbl) });
+            }
+            const fullText = peak.labels.join(', ');
+            const totalW = ctx.measureText(fullText).width;
+            let drawX = px - totalW / 2;
+            ctx.textAlign = 'left';
+            for (const part of parts) {
+              ctx.fillStyle = part.color || '#FFAB00';
+              ctx.fillText(part.text, drawX, py - 8);
+              drawX += ctx.measureText(part.text).width;
+              if (part.sep) {
+                ctx.fillStyle = '#FFAB00';
+                ctx.fillText(part.sep, drawX, py - 8);
+                drawX += ctx.measureText(part.sep).width;
+              }
+            }
+            ctx.textAlign = 'center';
+          } else {
+            // Single label or no follow-tuning active
+            const label = peak.labels.join(', ');
+            const matchColor = peak.labels.map(ftColor).find(c => c);
+            ctx.fillStyle = matchColor || '#FFAB00';
+            ctx.fillText(label, px, py - 8);
+          }
 
           // Dot at peak tip
+          const dotColor = peak.labels.map(ftColor).find(c => c);
+          ctx.fillStyle = dotColor || '#FFAB00';
           ctx.beginPath();
           ctx.arc(px, py, 2, 0, Math.PI * 2);
           ctx.fill();
