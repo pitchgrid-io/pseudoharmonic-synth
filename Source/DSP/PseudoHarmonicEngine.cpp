@@ -37,7 +37,8 @@ void PseudoHarmonicEngine::paramsChanged()
                 v.x[h] = std::complex<float>(0.0f, 0.0f); // was silent, stays silent
 
             // Update sustain level relative to harmonic gains
-            v.sustainLevel[h] = params_.sustain * v.velocity * harmonicGains_[h];
+            float sustainScale = params_.mpeEnabled ? 1.0f : v.velocity;
+            v.sustainLevel[h] = params_.sustain * sustainScale * harmonicGains_[h];
         }
     }
 
@@ -204,8 +205,10 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
     v.impact(impactVec_, velocity);
 
     // Sustain levels relative to harmonic gains (independent of strike)
+    // In MPE mode, pressure controls sustain/noise instead of velocity
+    float sustainScale = params_.mpeEnabled ? 1.0f : velocity;
     for (int h = 0; h < kMaxHarmonics; ++h)
-        v.sustainLevel[h] = params_.sustain * velocity * harmonicGains_[h];
+        v.sustainLevel[h] = params_.sustain * sustainScale * harmonicGains_[h];
 
     // Recompute rotation so sustainExcitation reflects the sustain levels
     v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
@@ -322,6 +325,17 @@ void PseudoHarmonicEngine::sustainPedal(bool on, int channel)
     }
 }
 
+void PseudoHarmonicEngine::channelPressure(float pressure, int channel)
+{
+    if (!params_.mpeEnabled) return;
+
+    for (auto& v : voices_)
+    {
+        if (v.active && !v.releasing && v.mpeChannel == channel)
+            v.pressure = pressure;
+    }
+}
+
 void PseudoHarmonicEngine::allNotesOff()
 {
     for (auto& v : voices_)
@@ -345,6 +359,9 @@ void PseudoHarmonicEngine::processBlock(float* outputL, float* outputR, int numS
         }
     }
 
+    // Precompute per-sample ramp factor for noise envelope (same rate as fundamental decay)
+    float noiseRampStep = 1.0f - std::exp(-decayRates_[0] / float(sampleRate_));
+
     for (int i = 0; i < numSamples; ++i)
     {
         float sample = 0.0f;
@@ -355,11 +372,14 @@ void PseudoHarmonicEngine::processBlock(float* outputL, float* outputR, int numS
             // Add noise excitation for active (non-releasing) voices
             if (!v.releasing && params_.noiseMix > 0.0f)
             {
+                v.noiseEnvelope += (1.0f - v.noiseEnvelope) * noiseRampStep;
+                float noiseScale = params_.mpeEnabled ? v.pressure : v.velocity;
+                float noiseMix = params_.noiseMix * noiseScale * v.noiseEnvelope;
                 for (int h = 0; h < kMaxHarmonics; ++h)
-                    v.x[h] += 0.002f * params_.noiseMix * noiseDist(rng) * harmonicGains_[h] * v.velocity;
+                    v.x[h] += 0.002f * noiseMix * noiseDist(rng) * harmonicGains_[h];
             }
 
-            sample += v.processSample();
+            sample += v.processSample(v.pressure);
 
             // Check if voice has decayed enough to deactivate
             if (v.energy() < 1e-10f)

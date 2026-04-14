@@ -124,6 +124,8 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             engine_.sustainPedal(true, msg.getChannel());
         else if (msg.isSustainPedalOff())
             engine_.sustainPedal(false, msg.getChannel());
+        else if (msg.isChannelPressure())
+            engine_.channelPressure(msg.getChannelPressureValue() / 127.0f, msg.getChannel());
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
             engine_.allNotesOff();
     }

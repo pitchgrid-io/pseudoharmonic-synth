@@ -27,6 +27,8 @@ struct PseudoHarmonicVoice
     float detuneAdd = 0.0f;
     float masterBendSemitones = 0.0f;  // from manager channel (ch 1)
     float noteBendSemitones = 0.0f;    // from member channel (per-note)
+    float pressure = 1.0f;             // MPE channel pressure (0..1), 1.0 = no scaling
+    float noiseEnvelope = 0.0f;        // ramps 0→1 at decay rate
     bool releasing = false;
     bool sustained = false;            // held by sustain pedal
 
@@ -47,6 +49,8 @@ struct PseudoHarmonicVoice
         active = true;
         releasing = false;
         sustained = false;
+        pressure = 1.0f;
+        noiseEnvelope = 0.0f;
         // Don't reset x — allows retriggering with continuity
     }
 
@@ -80,7 +84,7 @@ struct PseudoHarmonicVoice
         }
     }
 
-    float processSample()
+    float processSample(float pressureScale = 1.0f)
     {
         float sum = 0.0f;
         for (int h = 0; h < kMaxHarmonics; ++h)
@@ -88,11 +92,14 @@ struct PseudoHarmonicVoice
             x[h] *= rot[h];
 
             // Add sustain excitation in the direction of the oscillator
-            if (sustainExcitation[h] > 0.0f)
+            float exc = sustainExcitation[h] * pressureScale;
+            if (exc > 0.0f)
             {
                 float mag = std::abs(x[h]);
                 if (mag > 1e-15f)
-                    x[h] += sustainExcitation[h] * (x[h] / mag);
+                    x[h] += exc * (x[h] / mag);
+                else
+                    x[h] += std::complex<float>(0.0f, exc * 0.001f);
             }
 
             sum += x[h].imag();

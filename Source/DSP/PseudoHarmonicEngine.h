@@ -62,6 +62,7 @@ public:
     void allNotesOff();
     void pitchBend(int bendValue, int channel);
     void sustainPedal(bool on, int channel);
+    void channelPressure(float pressure, int channel);
 
     // Parameter access (thread-safe via atomic-like access — single writer)
     SynthParams& params() { return params_; }
