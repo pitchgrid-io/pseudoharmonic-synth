@@ -15,7 +15,8 @@ tools/render_sample
 
 # Distributable artifacts (built, not sources)
 *.dmg
-Installers/
+*.pkg
+Installers/Mac/installer-tmp/
 
 # Local tooling
 .claude/
