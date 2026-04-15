@@ -214,18 +214,21 @@ void PseudoHarmonicProcessor::applyFollowTuning(const TuningParams& tuning)
     struct NearestResult { double nodeX; double deviation; std::string label; };
 
     auto findNearest = [&](double log2val) -> NearestResult {
-        double bestDev = 1e9;
+        double bestAbsDev = 1e9;
         double bestX = 0.0;
+        double bestSignedDev = 0.0;
         std::string bestLabel;
         for (const auto& sn : scaleNodes) {
-            double dev = std::abs(log2val - sn.x);
-            if (dev < bestDev) {
-                bestDev = dev;
+            double dev = log2val - sn.x;
+            double absDev = std::abs(dev);
+            if (absDev < bestAbsDev) {
+                bestAbsDev = absDev;
+                bestSignedDev = dev;
                 bestX = sn.x;
                 bestLabel = sn.label;
             }
         }
-        return {bestX, bestDev, bestLabel};
+        return {bestX, bestSignedDev, bestLabel};
     };
 
     // Helper: find best adjusted prime value across a set of ratios,
@@ -263,7 +266,8 @@ void PseudoHarmonicProcessor::applyFollowTuning(const TuningParams& tuning)
         if (valid.empty())
             return {prime, "", "", 0.0, 0.0, false, true};
 
-        double bestDev = 1e9;
+        double bestAbsDev = 1e9;
+        double bestSignedDev = 0.0;
         double bestVal = prime;
         std::string bestRatio;
         std::string bestLabel;
@@ -271,8 +275,9 @@ void PseudoHarmonicProcessor::applyFollowTuning(const TuningParams& tuning)
 
         for (const auto* c : valid) {
             auto nr = findNearest(c->log2val);
-            if (nr.deviation < bestDev) {
-                bestDev = nr.deviation;
+            if (std::abs(nr.deviation) < bestAbsDev) {
+                bestAbsDev = std::abs(nr.deviation);
+                bestSignedDev = nr.deviation;
                 bestVal = c->solve(nr.nodeX);
                 bestRatio = c->name;
                 bestLabel = nr.label;
@@ -282,7 +287,7 @@ void PseudoHarmonicProcessor::applyFollowTuning(const TuningParams& tuning)
         double lo = prime * (1.0 - 0.03);
         double hi = prime * (1.0 + 0.03);
         bool clamped = (bestVal < lo || bestVal > hi);
-        return {std::clamp(bestVal, lo, hi), bestRatio, bestLabel, bestNodeX, bestDev, clamped, false};
+        return {std::clamp(bestVal, lo, hi), bestRatio, bestLabel, bestNodeX, bestSignedDev, clamped, false};
     };
 
     // --- Prime 2: {2:1} ---
@@ -353,7 +358,7 @@ void PseudoHarmonicProcessor::applyFollowTuning(const TuningParams& tuning)
         return nlohmann::json{
             {"prime", prime},
             {"scaleDegree", pr.scaleDegreeLabel},
-            {"nodeX", pr.nodeX},
+            {"notePitch", pr.nodeX * 1200.0},
             {"chosenRatio", pr.chosenRatio},
             {"deviation", pr.deviation},
             {"adjustedVal", pr.adjustedVal},

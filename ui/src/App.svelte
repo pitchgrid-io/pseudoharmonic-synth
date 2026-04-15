@@ -137,7 +137,7 @@
           <th>Prime</th>
           <th>Ratio</th>
           <th>Degree</th>
-          <th>Node X</th>
+          <th>Note Pitch</th>
           <th>Deviation</th>
           <th>Adjusted</th>
         </tr>
@@ -151,7 +151,7 @@
           {:else}
             <td class="ratio">{entry.chosenRatio}</td>
             <td>{entry.scaleDegree}</td>
-            <td>{entry.nodeX.toFixed(5)}</td>
+            <td>{entry.notePitch.toFixed(2)} ct</td>
             <td>{(entry.deviation * 1200).toFixed(2)} ct</td>
           {/if}
           <td>{entry.adjustedVal.toFixed(5)}</td>

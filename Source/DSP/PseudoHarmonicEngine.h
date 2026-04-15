@@ -7,7 +7,7 @@
 #include <mutex>
 #include <functional>
 
-static constexpr int kMaxVoices = 16;
+static constexpr int kMaxVoices = 32;
 
 struct SynthParams
 {
@@ -90,7 +90,6 @@ private:
     int blockSize_ = 512;
 
     std::array<PseudoHarmonicVoice, kMaxVoices> voices_;
-    int nextVoice_ = 0;
 
     // Derived arrays
     std::array<float, kMaxHarmonics> freqRatios_{};

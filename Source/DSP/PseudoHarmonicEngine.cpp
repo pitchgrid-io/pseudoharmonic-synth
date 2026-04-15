@@ -156,7 +156,7 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
 {
     float freq = noteToFreq(note);
 
-    // Find a free voice or steal oldest
+    // Find a free voice or steal lowest-energy voice
     int idx = -1;
     for (int i = 0; i < kMaxVoices; ++i)
     {
@@ -168,9 +168,18 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
     }
     if (idx < 0)
     {
-        // Steal: round-robin
-        idx = nextVoice_;
-        nextVoice_ = (nextVoice_ + 1) % kMaxVoices;
+        // Steal the voice with the lowest energy
+        float minEnergy = std::numeric_limits<float>::max();
+        idx = 0;
+        for (int i = 0; i < kMaxVoices; ++i)
+        {
+            float e = voices_[i].energy();
+            if (e < minEnergy)
+            {
+                minEnergy = e;
+                idx = i;
+            }
+        }
     }
 
     auto& v = voices_[idx];
@@ -213,7 +222,6 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
     // Recompute rotation so sustainExcitation reflects the sustain levels
     v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
 
-    nextVoice_ = (idx + 1) % kMaxVoices;
 }
 
 void PseudoHarmonicEngine::noteOff(int note, int mpeChannel)
