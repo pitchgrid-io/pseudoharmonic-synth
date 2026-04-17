@@ -1,4 +1,5 @@
 #include "PseudoHarmonicEngine.h"
+#include "libMTSClient.h"
 #include <algorithm>
 #include <random>
 
@@ -37,7 +38,7 @@ void PseudoHarmonicEngine::paramsChanged()
                 v.x[h] = std::complex<float>(0.0f, 0.0f); // was silent, stays silent
 
             // Update sustain level relative to harmonic gains
-            float sustainScale = params_.mpeEnabled ? 1.0f : v.velocity;
+            float sustainScale = effectiveMpeEnabled() ? 1.0f : v.velocity;
             v.sustainLevel[h] = params_.sustain * sustainScale * harmonicGains_[h];
         }
     }
@@ -145,16 +146,37 @@ void PseudoHarmonicEngine::updateAllRotations()
     }
 }
 
-float PseudoHarmonicEngine::noteToFreq(int note) const
+float PseudoHarmonicEngine::noteToFreq(int note, int midiChannel) const
 {
-    // TODO: MTS-ESP query if client available
-    // For now, standard 12-TET
+    if (mtsClient_ && mtsMasterActive_.load())
+    {
+        // MTS spec: pass MIDI channel (0-15), or -1 if unknown/MPE.
+        // When MPE is the user preference, we still suppress it while MTS is
+        // driving tuning — so we pass the incoming channel as-is.
+        signed char ch = (midiChannel >= 1 && midiChannel <= 16)
+                             ? static_cast<signed char>(midiChannel - 1)
+                             : static_cast<signed char>(-1);
+        double freq = MTS_NoteToFrequency(mtsClient_,
+                                          static_cast<char>(note),
+                                          ch);
+        return static_cast<float>(freq);
+    }
     return 440.0f * std::pow(2.0f, (note - 69) / 12.0f);
 }
 
 void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
 {
-    float freq = noteToFreq(note);
+    // MTS-ESP may request that a note be filtered (unmapped in the scale).
+    if (mtsClient_ && mtsMasterActive_.load())
+    {
+        signed char ch = (mpeChannel >= 1 && mpeChannel <= 16)
+                             ? static_cast<signed char>(mpeChannel - 1)
+                             : static_cast<signed char>(-1);
+        if (MTS_ShouldFilterNote(mtsClient_, static_cast<char>(note), ch))
+            return;
+    }
+
+    float freq = noteToFreq(note, mpeChannel);
 
     // Find a free voice or steal lowest-energy voice
     int idx = -1;
@@ -187,7 +209,7 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
     v.detuneAdd = freq * (params_.detune - 1.0f);
 
     // Inherit current pitch bend state for this channel
-    if (params_.mpeEnabled)
+    if (effectiveMpeEnabled())
     {
         // MPE: master bend from ch 1, per-note bend from member channel
         float masterRaw = float(channelBendRaw_[0] - 8192) / 8192.0f;
@@ -215,7 +237,7 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
 
     // Sustain levels relative to harmonic gains (independent of strike)
     // In MPE mode, pressure controls sustain/noise instead of velocity
-    float sustainScale = params_.mpeEnabled ? 1.0f : velocity;
+    float sustainScale = effectiveMpeEnabled() ? 1.0f : velocity;
     for (int h = 0; h < kMaxHarmonics; ++h)
         v.sustainLevel[h] = params_.sustain * sustainScale * harmonicGains_[h];
 
@@ -262,7 +284,7 @@ void PseudoHarmonicEngine::pitchBend(int bendValue, int channel)
 
     float raw = float(bendValue - 8192) / 8192.0f;
 
-    if (params_.mpeEnabled)
+    if (effectiveMpeEnabled())
     {
         if (channel == 1)
         {
@@ -335,7 +357,7 @@ void PseudoHarmonicEngine::sustainPedal(bool on, int channel)
 
 void PseudoHarmonicEngine::channelPressure(float pressure, int channel)
 {
-    if (!params_.mpeEnabled) return;
+    if (!effectiveMpeEnabled()) return;
 
     for (auto& v : voices_)
     {
@@ -381,7 +403,7 @@ void PseudoHarmonicEngine::processBlock(float* outputL, float* outputR, int numS
             if (!v.releasing && params_.noiseMix > 0.0f)
             {
                 v.noiseEnvelope += (1.0f - v.noiseEnvelope) * noiseRampStep;
-                float noiseScale = params_.mpeEnabled ? v.pressure : v.velocity;
+                float noiseScale = effectiveMpeEnabled() ? v.pressure : v.velocity;
                 float noiseMix = params_.noiseMix * noiseScale * v.noiseEnvelope;
                 for (int h = 0; h < kMaxHarmonics; ++h)
                     v.x[h] += 0.002f * noiseMix * noiseDist(rng) * harmonicGains_[h];

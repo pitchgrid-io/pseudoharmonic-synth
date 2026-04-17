@@ -57,7 +57,16 @@ target_sources(PseudoHarmonicSynth PRIVATE
     Source/Network/OSCReceiver.h
     Source/Visualization/ConsonanceCurve.cpp
     Source/Visualization/ConsonanceCurve.h
+    Source/MTS-ESP/libMTSClient.cpp
+    Source/MTS-ESP/libMTSClient.h
 )
+
+target_include_directories(PseudoHarmonicSynth PRIVATE Source/MTS-ESP)
+
+if(APPLE OR (UNIX AND NOT APPLE))
+    # MTS-ESP client uses dlopen/dlsym at runtime
+    target_link_libraries(PseudoHarmonicSynth PRIVATE ${CMAKE_DL_LIBS})
+endif()
 
 # Generate build timestamp at build time (not configure time)
 set(TIMESTAMP_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/BuildTimestamp.h")

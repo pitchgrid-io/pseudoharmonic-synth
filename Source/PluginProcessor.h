@@ -6,6 +6,9 @@
 #include "Network/OSCReceiver.h"
 #include "Visualization/ConsonanceCurve.h"
 #include <mutex>
+#include <string>
+
+struct MTSClient;
 
 class PseudoHarmonicProcessor : public juce::AudioProcessor,
                                  private juce::Timer,
@@ -58,6 +61,18 @@ private:
     WSBridge wsBridge_;
     OSCReceiver oscReceiver_;
     ConsonanceCurveCalculator curveCalc_;
+
+    // MTS-ESP client — registered in ctor, deregistered in dtor.  Lives for
+    // the lifetime of the plugin instance.  Master presence is polled from
+    // the timer and mirrored to the engine.
+    MTSClient* mtsClient_{nullptr};
+    // Raw master presence (is a master alive right now?) vs effective usage
+    // (are we actually routing through MTS?).  They differ when the user
+    // manually picks MIDI or MPE while a master is connected.
+    bool wasRawMasterActive_{false};
+    bool wasEffectiveMtsActive_{false};
+    std::atomic<bool> mtsOverride_{false};
+    std::string lastMtsScaleName_;
 
     uint64_t lastTuningVersion_{0};
     nlohmann::json cachedScaleDegrees_;

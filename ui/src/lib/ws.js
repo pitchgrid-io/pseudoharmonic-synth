@@ -6,10 +6,11 @@ export const params = writable({
   stretch2: 2.0, stretch3: 3.0, stretch5: 5.0, stretch7: 7.0, stretch11: 11.0, stretch13: 13.0,
   decay: 2.0, release: 1.0, strikePos: 0.5, oddEven: 1.0,
   strike: 0.02, volume: 1.0, noiseMix: 0.0, detune: 1.0, relaxTime: 0.1,
-  pitchBendRange: 2, mpeEnabled: false, mpeMasterBendRange: 2, mpePerNoteBendRange: 48,
+  pitchBendRange: 2, mpeEnabled: true, mpeMasterBendRange: 2, mpePerNoteBendRange: 48,
   curvePartials: 16, logBaseline: 0.5, warp: 32,
   oscSendConsonance: false, oscSendSpectrum: true,
-  showRatioLabels: true, followTuning: false, oscConnected: false
+  showRatioLabels: true, followTuning: false, oscConnected: false,
+  tuningMode: 'MPE', mtsMasterAvailable: false, mtsActive: false, mtsScaleName: ''
 });
 export const curveData = writable(null);
 export const activeNotes = writable([]);

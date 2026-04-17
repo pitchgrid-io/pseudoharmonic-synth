@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "BuildTimestamp.h"
+#include "libMTSClient.h"
 #include <scalatrix/mos.hpp>
 #include <numeric>
 #include <set>
@@ -62,6 +63,17 @@ PseudoHarmonicProcessor::PseudoHarmonicProcessor()
     for (auto* id : paramIDs)
         apvts_.addParameterListener(id, this);
 
+    // Seed engine with default MPE-enabled state (matches SynthParams default).
+    // pendingParams_ starts default-constructed, paramsDirty_ defaults to false,
+    // so push it explicitly so the audio thread picks it up on the first block.
+    paramsDirty_ = true;
+
+    // Register as an MTS-ESP client.  Safe even if libMTS is not installed —
+    // the client handles missing library gracefully (HasMaster will return
+    // false and note frequencies fall back to 12-TET).
+    mtsClient_ = MTS_RegisterClient();
+    engine_.setMTSClient(mtsClient_);
+
     // Start WS bridge on auto-assigned port
     wsBridge_.start(0);
 
@@ -91,6 +103,13 @@ PseudoHarmonicProcessor::~PseudoHarmonicProcessor()
     stopTimer();
     oscReceiver_.stop();
     wsBridge_.stop();
+
+    if (mtsClient_)
+    {
+        engine_.setMTSClient(nullptr);
+        MTS_DeregisterClient(mtsClient_);
+        mtsClient_ = nullptr;
+    }
 }
 
 void PseudoHarmonicProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -415,6 +434,42 @@ void PseudoHarmonicProcessor::applyFollowTuning(const TuningParams& tuning)
 
 void PseudoHarmonicProcessor::timerCallback()
 {
+    // Poll MTS-ESP master presence.  We track two states:
+    //   - raw master presence: is a master alive on the bus?  Controls
+    //     whether the MTS option is offered in the UI.
+    //   - effective MTS activity: are we actually routing through MTS?
+    //     False when the user has manually picked MIDI/MPE.
+    // When a master *newly* appears we auto-clear any override so MTS takes
+    // over automatically (matching the spec).  Manual user picks set the
+    // override back on via handleParamFromUI.
+    bool rawMaster = (mtsClient_ && MTS_HasMaster(mtsClient_));
+    if (rawMaster && !wasRawMasterActive_)
+        mtsOverride_.store(false);
+    bool effectiveMts = rawMaster && !mtsOverride_.load();
+
+    if (effectiveMts != wasEffectiveMtsActive_)
+    {
+        wasEffectiveMtsActive_ = effectiveMts;
+        engine_.setMTSMasterActive(effectiveMts);
+        paramsNeedBroadcast_ = true;
+    }
+    if (rawMaster != wasRawMasterActive_)
+    {
+        wasRawMasterActive_ = rawMaster;
+        paramsNeedBroadcast_ = true;
+    }
+    {
+        std::string curScale;
+        if (rawMaster && mtsClient_)
+            if (const char* n = MTS_GetScaleName(mtsClient_))
+                curScale = n;
+        if (curScale != lastMtsScaleName_)
+        {
+            lastMtsScaleName_ = std::move(curScale);
+            paramsNeedBroadcast_ = true;
+        }
+    }
+
     // Send curve data when spectrum params change
     bool curveJustUpdated = curveNeedsUpdate_.exchange(false);
     if (curveJustUpdated)
@@ -591,11 +646,27 @@ void PseudoHarmonicProcessor::handleParamFromUI(const std::string& id, float val
         return;
     }
 
+    // Mode overrides: the user explicitly asked for MIDI/MPE/MTS via the
+    // mode dropdown.  These aren't APVTS params; they update local state
+    // and force a param broadcast so the UI re-renders immediately.
+    if (id == "mtsOverride")
+    {
+        mtsOverride_.store(value > 0.5f);
+        paramsNeedBroadcast_ = true;
+        return;
+    }
+
     {
         std::lock_guard<std::mutex> lock(pendingParamsMutex_);
         auto& p = pendingParams_;
         if (id == "pitchBendRange") p.pitchBendRange = value;
-        else if (id == "mpeEnabled") p.mpeEnabled = (value > 0.5f);
+        else if (id == "mpeEnabled")
+        {
+            p.mpeEnabled = (value > 0.5f);
+            // Explicit MIDI/MPE pick from UI implies the user wants to
+            // override MTS for this session.
+            mtsOverride_.store(true);
+        }
         else if (id == "mpeMasterBendRange") p.mpeMasterBendRange = value;
         else if (id == "mpePerNoteBendRange") p.mpePerNoteBendRange = value;
         else return;
@@ -794,6 +865,15 @@ void PseudoHarmonicProcessor::sendParamsToUI()
 {
     std::lock_guard<std::mutex> lock(pendingParamsMutex_);
     const auto& p = pendingParams_;
+
+    // Effective tuning mode for the badge: MTS wins unless the user has
+    // explicitly overridden, or no master is available.
+    bool masterAvailable = wasRawMasterActive_;
+    bool mtsActive = wasEffectiveMtsActive_;
+    const char* tuningMode = mtsActive ? "MTS"
+                                       : (p.mpeEnabled ? "MPE" : "MIDI");
+    const std::string& mtsScaleName = lastMtsScaleName_;
+
     nlohmann::json j = {
         {"stretch2", p.stretch2},
         {"stretch3", p.stretch3},
@@ -823,6 +903,10 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"showRatioLabels", showRatioLabels_.load()},
         {"followTuning", followTuning_.load()},
         {"oscConnected", oscReceiver_.isConnected()},
+        {"tuningMode", tuningMode},
+        {"mtsMasterAvailable", masterAvailable},
+        {"mtsActive", mtsActive},
+        {"mtsScaleName", mtsScaleName},
         {"buildTimestamp", PH_BUILD_TIMESTAMP}
     };
     wsBridge_.sendParams(j);
@@ -861,7 +945,7 @@ void PseudoHarmonicProcessor::setStateInformation(const void* data, int sizeInBy
         {
             std::lock_guard<std::mutex> lock(pendingParamsMutex_);
             auto& p = pendingParams_;
-            p.mpeEnabled = midi->getIntAttribute("mpeEnabled", 0) != 0;
+            p.mpeEnabled = midi->getIntAttribute("mpeEnabled", 1) != 0;
             p.pitchBendRange = (float)midi->getDoubleAttribute("pitchBendRange", 2.0);
             p.mpeMasterBendRange = (float)midi->getDoubleAttribute("mpeMasterBendRange", 2.0);
             p.mpePerNoteBendRange = (float)midi->getDoubleAttribute("mpePerNoteBendRange", 48.0);

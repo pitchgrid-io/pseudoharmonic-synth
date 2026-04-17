@@ -2,10 +2,13 @@
 
 #include "PseudoHarmonicVoice.h"
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <vector>
 #include <mutex>
 #include <functional>
+
+struct MTSClient;
 
 static constexpr int kMaxVoices = 32;
 
@@ -36,7 +39,10 @@ struct SynthParams
     float relaxTime = 0.1f;   // seconds — how fast detune relaxes to 0
 
     // Pitch bend
-    bool mpeEnabled = false;              // false = standard MIDI, true = MPE
+    // User-preferred fallback mode when no MTS-ESP master is connected:
+    // false = standard MIDI, true = MPE.  Actual note routing uses MPE only when
+    // this is true AND no MTS-ESP master is active.
+    bool mpeEnabled = true;               // default: MPE
     float pitchBendRange = 2.0f;          // standard MIDI bend range (semitones)
     float mpeMasterBendRange = 2.0f;      // MPE manager channel range (semitones)
     float mpePerNoteBendRange = 48.0f;    // MPE member channel range (semitones)
@@ -91,9 +97,15 @@ public:
     // Get frequency ratios for visualization
     const std::array<float, kMaxHarmonics>& getFreqRatios() const { return freqRatios_; }
 
-    // MTS-ESP support
-    void setMTSClient(void* client) { mtsClient_ = client; }
-    float noteToFreq(int note) const;
+    // MTS-ESP support.  The client is owned by the processor; the engine only
+    // reads from it.  setMTSMasterActive is called whenever the master
+    // (dis)connects so note routing can adapt — MPE routing is suppressed
+    // while an MTS master is driving tuning.
+    void setMTSClient(MTSClient* client) { mtsClient_ = client; }
+    void setMTSMasterActive(bool active) { mtsMasterActive_.store(active); }
+    bool isMTSMasterActive() const { return mtsMasterActive_.load(); }
+    bool effectiveMpeEnabled() const { return params_.mpeEnabled && !mtsMasterActive_.load(); }
+    float noteToFreq(int note, int midiChannel = -1) const;
 
 private:
     void recomputeFreqRatios();
@@ -121,6 +133,7 @@ private:
     // Per-channel sustain pedal state
     std::array<bool, 16> sustainOn_{};  // indexed 0-15 for channels 1-16
 
-    // MTS-ESP
-    void* mtsClient_ = nullptr;
+    // MTS-ESP — client pointer is owned by the processor; engine only reads.
+    MTSClient* mtsClient_ = nullptr;
+    std::atomic<bool> mtsMasterActive_{false};
 };
