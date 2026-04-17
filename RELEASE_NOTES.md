@@ -1,4 +1,4 @@
-# PseudoHarmonic v0.3.0
+# PseudoHarmonic v0.3.1
 
 Pseudoharmonic additive synthesizer with real-time consonance visualization.
 
@@ -8,20 +8,20 @@ Pseudoharmonic additive synthesizer with real-time consonance visualization.
 - **Interactive consonance curve** with ratio labels at peaks (e.g. 3:2, 5:4)
 - **6 prime partial stretch controls** (2nd, 3rd, 5th, 7th, 11th, 13th) with ±3% deviation
 - **OSC tuning sync** — receives tuning from PitchGrid Mapper for MOS scale integration
+- **MTS-ESP client** — receives tuning from any connected MTS-ESP master
 - **Embedded web UI** with real-time spectrum, consonance curve, and interval display
 - **DAW integration** — 12 automatable parameters (VST3/AU), MPE support
 
-## What's New in v0.3.0
+## What's New in v0.3.1
 
-- **Follow Tuning mode** — toggle in the header (when OSC is connected) that automatically adjusts all six prime stretch parameters so key just-intonation ratios snap to the nearest MOS scale degrees. Processes primes hierarchically with dependency tracking: if a prime can't be solved within range, downstream ratios depending on it are excluded.
-- **Follow Tuning debug display** — info table below the consonance plot shows chosen ratio, matched scale degree, node position, deviation, and adjusted value for each prime
-- **Ratio highlighting on consonance curve** — chosen Follow Tuning ratios are highlighted in blue (valid) or red (clamped/out of range)
-- **MPE pressure control** — channel pressure now modulates sustain level and noise mix
-- **Gradual noise ramp** — noise amplitude ramps smoothly instead of stepping
-- **Sustain from zero** — sustain level starts at zero and builds with pressure
-- **Generation 3 consonance** — updated scalatrix with Gen 3 consonance model alongside Gen 2
-- **Cross-channel sustain pedal fix** — sustain CC now handled correctly across MIDI channels
-- **Build timestamp** shown in settings panel
+- **MTS-ESP client** — registers as an MTS-ESP client so note pitches can be driven by any connected MTS-ESP master. Scale-name changes propagate to the UI within ~33 ms.
+- **Mode dropdown** — new MIDI / MPE / MTS selector next to the logo replaces the MPE toggle in the settings gear. MTS auto-selects when a master appears; MPE is the default fallback. Bend-range controls (Pitch Bend Range / Master Bend / Per-Note Bend) moved into the dropdown since they are mode-specific.
+- **Audio thread safety** — parameter updates now land in a pending snapshot and swap into the engine at the top of `processBlock`, eliminating intermittent audio cracks from concurrent writes. Removed `std::vector` allocations on the audio thread.
+- **Max voices 16 → 32** — reduces voice stealing under dense playing.
+- **Smarter voice stealing** — picks the lowest-energy voice instead of round-robin.
+- **Follow Tuning table** — shows signed deviation (not absolute); "Node X" renamed to "Note Pitch" in cents.
+- **MIT LICENSE** added.
+- **Build timestamp** regenerates on every build.
 
 ## Formats
 

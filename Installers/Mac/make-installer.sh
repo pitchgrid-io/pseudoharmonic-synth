@@ -35,7 +35,7 @@ if [ -f .env ]; then
 fi
 
 APP_NAME="${APP_NAME:-PseudoHarmonic}"
-APP_VERSION="${APP_VERSION:-0.3.0}"
+APP_VERSION="${APP_VERSION:-0.3.1}"
 BUNDLE_ID="${BUNDLE_ID:-io.pitchgrid.pseudoharmonic}"
 IDENTITY="${CODESIGN_IDENTITY}"
 INSTALLER_IDENTITY="${INSTALLER_IDENTITY:-Developer ID Installer: ${DEVELOPER_NAME} (${TEAM_ID})}"
