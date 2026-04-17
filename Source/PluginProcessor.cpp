@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "BuildTimestamp.h"
 #include <scalatrix/mos.hpp>
 #include <numeric>
 #include <set>
@@ -102,6 +103,16 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     buffer.clear();
 
+    // Swap in pending params (audio thread is sole writer to engine_.params())
+    if (paramsDirty_.exchange(false))
+    {
+        // Copy pending snapshot — mutex not needed here because the audio thread
+        // is the only consumer and float field reads are atomic-width on all
+        // supported platforms. The mutex protects writer-writer races only.
+        engine_.params() = pendingParams_;
+        engine_.paramsChanged();
+    }
+
     // Process MIDI
     for (const auto metadata : midiMessages)
     {
@@ -148,11 +159,22 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             peak = std::max(peak, std::abs(data[i]));
     }
     peakLevel_.store(peak);
+
+    // Cache active notes for UI (lock-free: write array first, then publish count)
+    {
+        int n = 0;
+        engine_.forEachActiveNote([&](int note, float freq, int channel) {
+            if (n < kMaxVoices)
+                cachedActiveNotes_[n++] = {note, freq, channel};
+        });
+        cachedActiveNoteCount_.store(n, std::memory_order_release);
+    }
 }
 
 void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, float newValue)
 {
-    auto& p = engine_.params();
+    std::lock_guard<std::mutex> lock(pendingParamsMutex_);
+    auto& p = pendingParams_;
 
     if      (parameterID == "stretch2")  p.stretch2 = newValue;
     else if (parameterID == "stretch3")  p.stretch3 = newValue;
@@ -182,7 +204,7 @@ void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, 
         parameterID == "curvePartials" || parameterID == "warp")
         autoLogBaseline_ = true;
 
-    engine_.paramsChanged();
+    paramsDirty_ = true;
     curveNeedsUpdate_ = true;
     paramsNeedBroadcast_ = true;
 }
@@ -405,13 +427,14 @@ void PseudoHarmonicProcessor::timerCallback()
     // Send output level
     wsBridge_.sendLevel(peakLevel_.load());
 
-    // Always send active notes (cheap)
-    auto notes = engine_.getActiveNotes();
+    // Always send active notes (cheap — reads lock-free cache from audio thread)
+    int noteCount = cachedActiveNoteCount_.load(std::memory_order_acquire);
     nlohmann::json noteArr = nlohmann::json::array();
     std::vector<float> freqs;
     std::vector<int> midiNotes;
-    for (const auto& n : notes)
+    for (int i = 0; i < noteCount; ++i)
     {
+        const auto& n = cachedActiveNotes_[i];
         noteArr.push_back({{"note", n.note}, {"freq", n.freq}, {"channel", n.channel}});
         freqs.push_back(n.freq);
         midiNotes.push_back(n.note);
@@ -447,7 +470,7 @@ void PseudoHarmonicProcessor::timerCallback()
     if (oscConnected && oscSendSpectrum_.load() && (curveJustUpdated || spectrumNeedsSend_.exchange(false)))
     {
         const auto& ratios = engine_.getFreqRatios();
-        auto& p = engine_.params();
+        const auto& p = pendingParams_;  // read pending (message thread)
 
         // Build amplitude array (same logic as sendCurveToUI)
         std::array<float, kMaxHarmonics> amps{};
@@ -568,14 +591,17 @@ void PseudoHarmonicProcessor::handleParamFromUI(const std::string& id, float val
         return;
     }
 
-    auto& p = engine_.params();
-    if (id == "pitchBendRange") p.pitchBendRange = value;
-    else if (id == "mpeEnabled") p.mpeEnabled = (value > 0.5f);
-    else if (id == "mpeMasterBendRange") p.mpeMasterBendRange = value;
-    else if (id == "mpePerNoteBendRange") p.mpePerNoteBendRange = value;
-    else return;
+    {
+        std::lock_guard<std::mutex> lock(pendingParamsMutex_);
+        auto& p = pendingParams_;
+        if (id == "pitchBendRange") p.pitchBendRange = value;
+        else if (id == "mpeEnabled") p.mpeEnabled = (value > 0.5f);
+        else if (id == "mpeMasterBendRange") p.mpeMasterBendRange = value;
+        else if (id == "mpePerNoteBendRange") p.mpePerNoteBendRange = value;
+        else return;
+    }
 
-    engine_.paramsChanged();
+    paramsDirty_ = true;
     curveNeedsUpdate_ = true;
     paramsNeedBroadcast_ = true;
 }
@@ -583,7 +609,7 @@ void PseudoHarmonicProcessor::handleParamFromUI(const std::string& id, float val
 void PseudoHarmonicProcessor::sendCurveToUI()
 {
     const auto& ratios = engine_.getFreqRatios();
-    auto& p = engine_.params();
+    const auto& p = pendingParams_;  // read pending (message thread)
 
     // Build amplitude array (same as gains normalization)
     std::array<float, kMaxHarmonics> amps{};
@@ -630,7 +656,11 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     if (autoLogBaseline_)
     {
         float computed = curveCalc_.getEffectiveLogBaseline();
-        p.logBaseline = computed;
+        {
+            std::lock_guard<std::mutex> lock(pendingParamsMutex_);
+            pendingParams_.logBaseline = computed;
+            paramsDirty_ = true;
+        }
         // Update APVTS on message thread so UI knob reflects new value
         auto* param = apvts_.getParameter("logBaseline");
         if (param)
@@ -762,7 +792,8 @@ void PseudoHarmonicProcessor::sendCurveToUI()
 
 void PseudoHarmonicProcessor::sendParamsToUI()
 {
-    const auto& p = engine_.params();
+    std::lock_guard<std::mutex> lock(pendingParamsMutex_);
+    const auto& p = pendingParams_;
     nlohmann::json j = {
         {"stretch2", p.stretch2},
         {"stretch3", p.stretch3},
@@ -803,7 +834,8 @@ void PseudoHarmonicProcessor::getStateInformation(juce::MemoryBlock& destData)
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
 
     // Save non-APVTS MIDI/MPE settings
-    const auto& p = engine_.params();
+    std::lock_guard<std::mutex> lock(pendingParamsMutex_);
+    const auto& p = pendingParams_;
     auto* midi = xml->createNewChildElement("MidiSettings");
     midi->setAttribute("mpeEnabled", p.mpeEnabled ? 1 : 0);
     midi->setAttribute("pitchBendRange", (double)p.pitchBendRange);
@@ -827,12 +859,13 @@ void PseudoHarmonicProcessor::setStateInformation(const void* data, int sizeInBy
         // Restore non-APVTS MIDI/MPE settings
         if (auto* midi = xml->getChildByName("MidiSettings"))
         {
-            auto& p = engine_.params();
+            std::lock_guard<std::mutex> lock(pendingParamsMutex_);
+            auto& p = pendingParams_;
             p.mpeEnabled = midi->getIntAttribute("mpeEnabled", 0) != 0;
             p.pitchBendRange = (float)midi->getDoubleAttribute("pitchBendRange", 2.0);
             p.mpeMasterBendRange = (float)midi->getDoubleAttribute("mpeMasterBendRange", 2.0);
             p.mpePerNoteBendRange = (float)midi->getDoubleAttribute("mpePerNoteBendRange", 48.0);
-            engine_.paramsChanged();
+            paramsDirty_ = true;
 
             // Remove before passing to APVTS so it doesn't see unknown elements
             xml->removeChildElement(midi, true);

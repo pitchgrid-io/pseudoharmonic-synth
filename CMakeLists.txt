@@ -59,14 +59,23 @@ target_sources(PseudoHarmonicSynth PRIVATE
     Source/Visualization/ConsonanceCurve.h
 )
 
-string(TIMESTAMP BUILD_TIMESTAMP "%Y-%m-%d %H:%M:%S" UTC)
+# Generate build timestamp at build time (not configure time)
+set(TIMESTAMP_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/BuildTimestamp.h")
+add_custom_target(GenerateBuildTimestamp ALL
+    COMMAND ${CMAKE_COMMAND}
+        -DOUTPUT_FILE=${TIMESTAMP_HEADER}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateTimestamp.cmake
+    COMMENT "Generating build timestamp"
+)
+add_dependencies(PseudoHarmonicSynth GenerateBuildTimestamp)
+target_include_directories(PseudoHarmonicSynth PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
 target_compile_definitions(PseudoHarmonicSynth PUBLIC
     JUCE_WEB_BROWSER=1
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_VST3_EMULATE_MIDI_CC_WITH_PARAMETERS=1
-    PH_BUILD_TIMESTAMP="${BUILD_TIMESTAMP}"
 )
 
 if(UNIX AND NOT APPLE)

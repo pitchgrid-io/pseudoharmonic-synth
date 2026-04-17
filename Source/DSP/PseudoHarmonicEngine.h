@@ -73,6 +73,21 @@ public:
     struct ActiveNote { int note; float freq; int channel; };
     std::vector<ActiveNote> getActiveNotes() const;
 
+    // Allocation-free iteration over active notes (audio-thread safe)
+    template<typename Fn>
+    void forEachActiveNote(Fn&& fn) const
+    {
+        for (const auto& v : voices_)
+        {
+            if (v.active && !v.releasing)
+            {
+                float bendTotal = v.masterBendSemitones + v.noteBendSemitones;
+                float bentFreq = v.baseFreq * std::pow(2.0f, bendTotal / 12.0f);
+                fn(v.midiNote, bentFreq, v.mpeChannel);
+            }
+        }
+    }
+
     // Get frequency ratios for visualization
     const std::array<float, kMaxHarmonics>& getFreqRatios() const { return freqRatios_; }
 

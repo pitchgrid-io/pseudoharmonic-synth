@@ -5,6 +5,7 @@
 #include "Network/WSBridge.h"
 #include "Network/OSCReceiver.h"
 #include "Visualization/ConsonanceCurve.h"
+#include <mutex>
 
 class PseudoHarmonicProcessor : public juce::AudioProcessor,
                                  private juce::Timer,
@@ -79,6 +80,19 @@ private:
 
     // Follow-tuning debug info (updated by applyFollowTuning, read by timerCallback)
     nlohmann::json followTuningInfo_;
+
+    // Double-buffered params: writers update pendingParams_ behind mutex,
+    // audio thread swaps into engine at start of processBlock
+    SynthParams pendingParams_;
+    std::mutex pendingParamsMutex_;   // only held by non-audio threads
+    std::atomic<bool> paramsDirty_{false};
+
+    // Cached active notes snapshot (written by audio thread, read by timer)
+    struct ActiveNoteSnapshot {
+        int note; float freq; int channel;
+    };
+    std::array<ActiveNoteSnapshot, kMaxVoices> cachedActiveNotes_{};
+    std::atomic<int> cachedActiveNoteCount_{0};
 
     static constexpr const char* paramIDs[] = {
         "stretch2", "stretch3", "stretch5", "stretch7", "stretch11", "stretch13",

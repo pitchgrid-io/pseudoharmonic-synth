@@ -3,18 +3,27 @@
 #include <array>
 #include <cmath>
 #include <complex>
-#include <vector>
 
 static constexpr int kMaxHarmonics = 32;
 
-// Prime factorization helper
-inline std::vector<int> primeFactors(int n)
+// Stack-allocated prime factorization (no heap allocation — safe for audio thread).
+// For n <= 32, at most 5 factors (2^5 = 32). Capacity 8 covers any reasonable harmonic.
+struct PrimeFactors
 {
-    std::vector<int> factors;
+    std::array<int, 8> data{};
+    int count = 0;
+
+    const int* begin() const { return data.data(); }
+    const int* end()   const { return data.data() + count; }
+};
+
+inline PrimeFactors primeFactors(int n)
+{
+    PrimeFactors f;
     for (int i = 2; i * i <= n; ++i)
-        while (n % i == 0) { factors.push_back(i); n /= i; }
-    if (n > 1) factors.push_back(n);
-    return factors;
+        while (n % i == 0) { f.data[f.count++] = i; n /= i; }
+    if (n > 1) f.data[f.count++] = n;
+    return f;
 }
 
 struct PseudoHarmonicVoice

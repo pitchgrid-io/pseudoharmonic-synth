@@ -434,7 +434,7 @@
   .build-info span {
     font-size: 10px;
     color: var(--text-secondary);
-    opacity: 0.6;
+    opacity: 0.85;
   }
   .settings-row select {
     background: var(--bg-secondary);
