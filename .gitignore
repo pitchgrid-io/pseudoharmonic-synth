@@ -1,5 +1,6 @@
 build/
 build-debug/
+build-linux/
 build-release-arm64/
 build-release-x86_64/
 Assets/
@@ -16,7 +17,9 @@ tools/render_sample
 # Distributable artifacts (built, not sources)
 *.dmg
 *.pkg
+*.exe
 Installers/Mac/installer-tmp/
+Installers/Windows/Output/
 
 # Local tooling
 .claude/
