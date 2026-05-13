@@ -3,6 +3,7 @@ build-debug/
 build-linux/
 build-release-arm64/
 build-release-x86_64/
+build-release-win/
 Assets/
 ui/node_modules/
 ui/dist/
