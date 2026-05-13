@@ -248,19 +248,19 @@
     <div class="control-group">
       <h3>Spectrum</h3>
       <div class="knob-row">
-        <Knob label="2nd" value={$params.stretch2} min={sr(2).min} max={sr(2).max} step={sr(2).step}
+        <Knob label="2nd" value={$params.stretch2} min={sr(2).min} max={sr(2).max} step={sr(2).step} defaultValue={2}
                onChange={send('stretch2')} />
-        <Knob label="3rd" value={$params.stretch3} min={sr(3).min} max={sr(3).max} step={sr(3).step}
+        <Knob label="3rd" value={$params.stretch3} min={sr(3).min} max={sr(3).max} step={sr(3).step} defaultValue={3}
                onChange={send('stretch3')} />
-        <Knob label="5th" value={$params.stretch5} min={sr(5).min} max={sr(5).max} step={sr(5).step}
+        <Knob label="5th" value={$params.stretch5} min={sr(5).min} max={sr(5).max} step={sr(5).step} defaultValue={5}
                onChange={send('stretch5')} />
-        <Knob label="7th" value={$params.stretch7} min={sr(7).min} max={sr(7).max} step={sr(7).step}
+        <Knob label="7th" value={$params.stretch7} min={sr(7).min} max={sr(7).max} step={sr(7).step} defaultValue={7}
                onChange={send('stretch7')} />
-        <Knob label="11th" value={$params.stretch11} min={sr(11).min} max={sr(11).max} step={sr(11).step}
+        <Knob label="11th" value={$params.stretch11} min={sr(11).min} max={sr(11).max} step={sr(11).step} defaultValue={11}
                onChange={send('stretch11')} />
-        <Knob label="13th" value={$params.stretch13} min={sr(13).min} max={sr(13).max} step={sr(13).step}
+        <Knob label="13th" value={$params.stretch13} min={sr(13).min} max={sr(13).max} step={sr(13).step} defaultValue={13}
                onChange={send('stretch13')} />
-        <Knob label="Warp" value={$params.warp} min={0} max={32} step={0.1}
+        <Knob label="Warp" value={$params.warp} min={0} max={32} step={0.1} defaultValue={32}
                onChange={send('warp')} />
       </div>
     </div>
@@ -269,13 +269,13 @@
     <div class="control-group">
       <h3>Timbre</h3>
       <div class="knob-row">
-        <Knob label="Strike" value={$params.strike} min={0} max={1} step={0.01}
+        <Knob label="Strike" value={$params.strike} min={0} max={1} step={0.01} defaultValue={0.2}
                onChange={send('strike')} />
-        <Knob label="Strike Pos" value={$params.strikePos} min={0.01} max={1} step={0.01}
+        <Knob label="Strike Pos" value={$params.strikePos} min={0.01} max={1} step={0.01} defaultValue={0.5}
                onChange={send('strikePos')} />
-        <Knob label="Odd/Even" value={$params.oddEven} min={0} max={1} step={0.01}
+        <Knob label="Odd/Even" value={$params.oddEven} min={0} max={1} step={0.01} defaultValue={1}
                onChange={send('oddEven')} />
-        <Knob label="Noise" value={$params.noiseMix} min={0} max={1} step={0.01}
+        <Knob label="Noise" value={$params.noiseMix} min={0} max={1} step={0.01} defaultValue={0}
                onChange={send('noiseMix')} />
       </div>
     </div>
@@ -284,17 +284,17 @@
     <div class="control-group">
       <h3>Envelope</h3>
       <div class="knob-row">
-        <Knob label="Decay" value={$params.decay} min={0.01} max={20} step={0.01} log={true}
+        <Knob label="Decay" value={$params.decay} min={0.01} max={20} step={0.01} log={true} defaultValue={2}
                onChange={send('decay')} />
-        <Knob label="Sustain" value={$params.sustain} min={0} max={1} step={0.01}
+        <Knob label="Sustain" value={$params.sustain} min={0} max={1} step={0.01} defaultValue={0}
                onChange={send('sustain')} />
-        <Knob label="Release" value={$params.release} min={0.01} max={20} step={0.01} log={true}
+        <Knob label="Release" value={$params.release} min={0.01} max={20} step={0.01} log={true} defaultValue={1}
                onChange={send('release')} />
-        <Knob label="Onset Pitch" value={$params.detune} min={0.5} max={2} step={0.001} log={true}
+        <Knob label="Onset Pitch" value={$params.detune} min={0.5} max={2} step={0.001} log={true} defaultValue={1}
                onChange={send('detune')} />
-        <Knob label="Settle" value={$params.relaxTime} min={0.01} max={1} step={0.01} log={true}
+        <Knob label="Settle" value={$params.relaxTime} min={0.01} max={1} step={0.01} log={true} defaultValue={0.1}
                onChange={send('relaxTime')} />
-        <Knob label="Volume" value={$params.volume} min={0.01} max={2} step={0.01} log={true}
+        <Knob label="Volume" value={$params.volume} min={0.01} max={2} step={0.01} log={true} defaultValue={1}
                onChange={send('volume')} />
       </div>
     </div>
@@ -303,9 +303,9 @@
     <div class="control-group">
       <h3>Consonance</h3>
       <div class="knob-row">
-        <Knob label="Partials" value={$params.curvePartials} min={1} max={32} step={0.1}
+        <Knob label="Partials" value={$params.curvePartials} min={1} max={32} step={0.1} defaultValue={16}
                onChange={send('curvePartials')} />
-        <Knob label="Log Base" value={$params.logBaseline} min={0.1} max={2} step={0.01}
+        <Knob label="Log Base" value={$params.logBaseline} min={0.1} max={2} step={0.01} defaultValue={0.5}
                onChange={send('logBaseline')} />
       </div>
     </div>

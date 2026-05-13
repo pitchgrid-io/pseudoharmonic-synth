@@ -6,7 +6,8 @@
   export let label = '';
   export let unit = '';
   export let log = false;
-  export let onChange = () => {};
+  export let defaultValue = undefined;
+  export let onChange = (_v) => {};
 
   let dragging = false;
   let startY = 0;
@@ -56,9 +57,15 @@
     window.removeEventListener('pointerup', onPointerUp);
     if (dragStyle) { dragStyle.remove(); dragStyle = null; }
   }
+
+  function onDoubleClick() {
+    if (defaultValue === undefined) return;
+    value = Math.max(min, Math.min(max, defaultValue));
+    onChange(value);
+  }
 </script>
 
-<div class="knob-container" on:pointerdown={onPointerDown}>
+<div class="knob-container" on:pointerdown={onPointerDown} on:dblclick={onDoubleClick} title={defaultValue !== undefined ? 'Double-click to reset' : undefined}>
   <svg viewBox="0 0 60 60" class="knob-svg">
     <!-- Track arc -->
     <circle cx="30" cy="30" r="24" fill="none" stroke="var(--knob-track)" stroke-width="3"
