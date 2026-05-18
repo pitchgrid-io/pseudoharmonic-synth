@@ -41,6 +41,8 @@ IDENTITY="${CODESIGN_IDENTITY}"
 INSTALLER_IDENTITY="${INSTALLER_IDENTITY:-Developer ID Installer: ${DEVELOPER_NAME} (${TEAM_ID})}"
 BUILD_DIR="build-release-${ARCH}"
 ARTIFACTS="${BUILD_DIR}/PseudoHarmonicSynth_artefacts/Release"
+# entitlements.plist lives at the project root (two levels up from this script)
+ENTITLEMENTS="$(cd "$(dirname "$0")/../.." && pwd)/entitlements.plist"
 
 UNDERSCORE_NAME="${APP_NAME// /_}"
 OUTPUT_FILENAME="${APP_NAME}-${APP_VERSION}-${ARCH}"
@@ -68,7 +70,8 @@ sign_binary() {
         echo "    Signing $(basename "$path")..."
         xattr -rc "$path" 2>/dev/null || true
         find "$path" -name "_CodeSignature" -type d -exec rm -rf {} + 2>/dev/null || true
-        codesign --deep --force --sign "$IDENTITY" --timestamp --options runtime "$path"
+        codesign --deep --force --sign "$IDENTITY" --timestamp --options runtime \
+            --entitlements "$ENTITLEMENTS" "$path"
         codesign --verify --deep --strict "$path"
     else
         echo "    Skipping signing (no CODESIGN_IDENTITY)"

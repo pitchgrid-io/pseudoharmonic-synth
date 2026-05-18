@@ -34,6 +34,8 @@ IDENTITY="${CODESIGN_IDENTITY}"
 APP_NAME="${APP_NAME:-PseudoHarmonic}"
 BUILD_DIR="build-release-${ARCH}"
 ARTIFACTS="${BUILD_DIR}/PseudoHarmonicSynth_artefacts/Release"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENTITLEMENTS="${SCRIPT_DIR}/entitlements.plist"
 
 if [ -z "$IDENTITY" ]; then
     echo "No CODESIGN_IDENTITY set in .env, skipping code signing"
@@ -61,8 +63,10 @@ for artifact in \
     # Remove existing signatures
     find "$artifact" -name "_CodeSignature" -type d -exec rm -rf {} + 2>/dev/null || true
 
-    # Sign with hardened runtime
-    codesign --deep --force --sign "$IDENTITY" --options runtime --timestamp "$artifact"
+    # Sign with hardened runtime + entitlements (disable-library-validation
+    # is required so libMTSClient can dlopen ODDSound's libMTS.dylib)
+    codesign --deep --force --sign "$IDENTITY" --options runtime --timestamp \
+        --entitlements "$ENTITLEMENTS" "$artifact"
 
     # Verify
     if codesign --verify --deep --strict "$artifact" 2>&1; then
