@@ -34,10 +34,6 @@
     dragging = true;
     startY = e.clientY;
     startValue = norm;
-    // Inject global style to suppress all hover/pointer effects during drag
-    dragStyle = document.createElement('style');
-    dragStyle.textContent = '*, *::before, *::after { pointer-events: none !important; cursor: ns-resize !important; user-select: none !important; -webkit-user-select: none !important; }';
-    document.head.appendChild(dragStyle);
     // Window-level listeners work regardless of pointer-events CSS and window boundaries
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
@@ -45,6 +41,13 @@
 
   function onPointerMove(e) {
     if (!dragging) return;
+    // Inject global style only once real drag motion starts, so quick taps
+    // still dispatch click/dblclick (pointer-events:none suppresses them).
+    if (!dragStyle && Math.abs(e.clientY - startY) > 2) {
+      dragStyle = document.createElement('style');
+      dragStyle.textContent = '*, *::before, *::after { pointer-events: none !important; cursor: ns-resize !important; user-select: none !important; -webkit-user-select: none !important; }';
+      document.head.appendChild(dragStyle);
+    }
     const delta = (startY - e.clientY) / 200;
     const newNorm = Math.max(0, Math.min(1, startValue + delta));
     value = fromNorm(newNorm);
