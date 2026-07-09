@@ -1,6 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "BuildTimestamp.h"
+#include "DSP/SpectrumModel.h"
+#include "Mod/ModConfigJson.h"
 #include "libMTSClient.h"
 #include <scalatrix/mos.hpp>
 #include <numeric>
@@ -51,6 +53,31 @@ juce::AudioProcessorValueTreeState::ParameterLayout PseudoHarmonicProcessor::cre
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"warp", v}, "Warp", juce::NormalisableRange<float>(0.0f, 32.0f, 0.1f), 32.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"logBaseline", v}, "Log Baseline", juce::NormalisableRange<float>(0.1f, 2.0f, 0.01f), 0.5f));
 
+    // Spectral shaping (SineBank-style). Neutral defaults preserve the base timbre.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"centreFocus", v}, "Centre Focus", juce::NormalisableRange<float>(0.0f, 31.0f, 0.1f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"ampTilt",     v}, "Amp Tilt",     juce::NormalisableRange<float>(0.0f, 6.0f, 0.01f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"phaseSpread", v}, "Phase Spread", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.0f));
+
+    // Per-voice multimode filter.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"filterType",   v}, "Filter Type",   juce::NormalisableRange<float>(0.0f, 4.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"filterCutoff", v}, "Filter Cutoff", makeLogRange(20.0f, 20000.0f, 2000.0f), 12000.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"filterReso",   v}, "Filter Reso",   juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.1f));
+
+    // Master effects (delay + reverb).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayTime",     v}, "Delay Time",     makeLogRange(0.01f, 2.0f, 0.3f), 0.3f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayFeedback", v}, "Delay Feedback", juce::NormalisableRange<float>(0.0f, 0.95f, 0.001f), 0.3f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayMix",      v}, "Delay Mix",      juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"reverbAmount",  v}, "Reverb Amount",  juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"reverbSize",    v}, "Reverb Size",    juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));
+
+    // Macros: 8 automatable global control handles (0..1), assignable as mod
+    // sources and drivable by host automation, MIDI CC, or OSC.
+    for (int i = 1; i <= 8; ++i)
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"macro" + juce::String(i), v},
+            "Macro " + juce::String(i),
+            juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.0f));
+
     return layout;
 }
 
@@ -82,10 +109,17 @@ PseudoHarmonicProcessor::PseudoHarmonicProcessor()
         handleParamFromUI(id, value);
     });
 
+    // Handle structured commands from UI (mod-route edits, preset commands…).
+    wsBridge_.onCommand([this](const nlohmann::json& j) {
+        handleCommandFromUI(j);
+    });
+
     // Re-send state when a new client connects
     wsBridge_.onClientConnect([this]() {
         curveNeedsUpdate_ = true;
         paramsNeedBroadcast_ = true;
+        modStateNeedsBroadcast_ = true;
+        sendPresetListToUI();
     });
 
     // Start OSC receiver (sends heartbeat to plugin on port 34562)
@@ -114,7 +148,10 @@ PseudoHarmonicProcessor::~PseudoHarmonicProcessor()
 
 void PseudoHarmonicProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    sampleRate_ = sampleRate;
     engine_.prepareToPlay(sampleRate, samplesPerBlock);
+    modEngine_.prepare(sampleRate, samplesPerBlock);
+    masterFx_.prepare(sampleRate, samplesPerBlock);
 }
 
 void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
@@ -122,13 +159,58 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     buffer.clear();
 
-    // Swap in pending params (audio thread is sole writer to engine_.params())
-    if (paramsDirty_.exchange(false))
+    // Swap in pending params (audio thread is sole writer to engine_.params()).
+    // Base params flow through the ModEngine, which resolves them into the
+    // effective params fed to the audio engine.  In Phase 1 there are no
+    // sources or routes, so resolve() is an identity and audio is unchanged;
+    // once time-varying sources exist (Phase 3) resolve() runs every block.
+    bool baseChanged = paramsDirty_.exchange(false);
+    if (baseChanged)
     {
         // Copy pending snapshot — mutex not needed here because the audio thread
         // is the only consumer and float field reads are atomic-width on all
         // supported platforms. The mutex protects writer-writer races only.
-        engine_.params() = pendingParams_;
+        modEngine_.setBaseParams(pendingParams_);
+    }
+
+    // Push an edited modulation config (routes + LFO/env settings) into the
+    // engine.  Rare (user edits), so a brief lock on the audio thread is fine;
+    // runtime generator state is preserved by applyConfig().
+    if (modConfigDirty_.exchange(false))
+    {
+        std::lock_guard<std::mutex> lock(modMutex_);
+        modEngine_.applyConfig(modConfig_);
+    }
+
+    // Advance modulation sources and evaluate the matrix (control rate, once per
+    // block).  Uses the previous block's expression snapshot — a sub-block
+    // latency that is inaudible.  Note gating from this block's MIDI (below)
+    // applies from the next block.
+    const bool modActive = modEngine_.hasActiveModulation();
+    if (modActive)
+    {
+        // Apply fresh OSC-driven macro values (only on version change).
+        for (int i = 0; i < 8; ++i)
+        {
+            uint32_t v = oscReceiver_.getMacroVersion(i);
+            if (v != lastOscMacroVer_[i]) { lastOscMacroVer_[i] = v; macroValues_[i].store(oscReceiver_.getMacro(i)); }
+        }
+        // Push current macro values (host/CC/OSC-driven) into the ModEngine.
+        for (int i = 0; i < 8; ++i)
+            modEngine_.setMacro(i, macroValues_[i].load());
+
+        ModInputs mi;
+        mi.timbreY    = lastTimbreY_;
+        mi.pressureZ  = lastPressureZ_;
+        mi.velocity   = lastVelocity_;
+        mi.pitchX     = lastPitchX_;
+        mi.consonance = 0.0f;  // wired to the live consonance value in a later step
+        double dt = double(buffer.getNumSamples()) / sampleRate_;
+        modEngine_.process(mi, dt);
+    }
+    if (baseChanged || modActive)
+    {
+        modEngine_.resolve(engine_.params());
         engine_.paramsChanged();
     }
 
@@ -147,9 +229,18 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         // }
 
         if (msg.isNoteOn())
+        {
             engine_.noteOn(msg.getNoteNumber(), msg.getFloatVelocity(), msg.getChannel());
+            // Feed the modulation engine: gate/trigger + expression snapshot.
+            lastVelocity_ = msg.getFloatVelocity();
+            lastPitchX_   = juce::jlimit(-1.0f, 1.0f, (msg.getNoteNumber() - 60) / 36.0f);
+            modEngine_.noteOn();
+        }
         else if (msg.isNoteOff())
+        {
             engine_.noteOff(msg.getNoteNumber(), msg.getChannel());
+            modEngine_.noteOff();
+        }
         else if (msg.isPitchWheel())
             engine_.pitchBend(msg.getPitchWheelValue(), msg.getChannel());
         else if (msg.isSustainPedalOn())
@@ -157,9 +248,30 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         else if (msg.isSustainPedalOff())
             engine_.sustainPedal(false, msg.getChannel());
         else if (msg.isChannelPressure())
-            engine_.channelPressure(msg.getChannelPressureValue() / 127.0f, msg.getChannel());
+        {
+            float z = msg.getChannelPressureValue() / 127.0f;
+            engine_.channelPressure(z, msg.getChannel());
+            lastPressureZ_ = z;
+        }
+        else if (msg.isController())
+        {
+            const int cc = msg.getControllerNumber();
+            const float val = msg.getControllerValue() / 127.0f;
+            if (cc == 74)
+            {
+                // MPE "Y" / timbre (CC74) — modulation source.
+                lastTimbreY_ = val;
+            }
+            // MIDI CC → macro external drive (default map CC 20..27 → macro 1..8).
+            for (int i = 0; i < 8; ++i)
+                if (macroCC_[i] == cc)
+                    macroValues_[i].store(val);
+        }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+        {
             engine_.allNotesOff();
+            modEngine_.allNotesOff();
+        }
     }
 
     // Process audio
@@ -168,6 +280,17 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     engine_.processBlock(left, right ? right : left, buffer.getNumSamples());
     if (right == nullptr && buffer.getNumChannels() > 1)
         buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
+
+    // Master effects (delay + reverb) on the summed stereo output, using the
+    // effective (modulated) FX params.
+    {
+        const auto& fp = engine_.params();
+        float* fl = buffer.getWritePointer(0);
+        float* fr = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : fl;
+        masterFx_.process(fl, fr, buffer.getNumSamples(),
+                          fp.delayTime, fp.delayFeedback, fp.delayMix,
+                          fp.reverbAmount, fp.reverbSize);
+    }
 
     // Measure peak level from output
     float peak = 0.0f;
@@ -192,6 +315,18 @@ void PseudoHarmonicProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
 void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, float newValue)
 {
+    // Macros: store into the effective macro array read by the audio thread.
+    if (parameterID.startsWith("macro"))
+    {
+        int idx = parameterID.substring(5).getIntValue() - 1;  // "macro1" -> 0
+        if (idx >= 0 && idx < 8)
+        {
+            macroValues_[idx].store(newValue);
+            paramsNeedBroadcast_ = true;
+        }
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(pendingParamsMutex_);
     auto& p = pendingParams_;
 
@@ -214,13 +349,25 @@ void PseudoHarmonicProcessor::parameterChanged(const juce::String& parameterID, 
     else if (parameterID == "curvePartials") { p.curvePartials = newValue; autoLogBaseline_ = true; }
     else if (parameterID == "warp") p.warp = newValue;
     else if (parameterID == "logBaseline") { p.logBaseline = newValue; if (!updatingLogBaseline_) autoLogBaseline_ = false; }
+    else if (parameterID == "centreFocus") p.centreFocus = newValue;
+    else if (parameterID == "ampTilt")     p.ampTilt = newValue;
+    else if (parameterID == "phaseSpread") p.phaseSpread = newValue;
+    else if (parameterID == "filterType")   p.filterType = int(newValue + 0.5f);
+    else if (parameterID == "filterCutoff") p.filterCutoff = newValue;
+    else if (parameterID == "filterReso")   p.filterReso = newValue;
+    else if (parameterID == "delayTime")     p.delayTime = newValue;
+    else if (parameterID == "delayFeedback") p.delayFeedback = newValue;
+    else if (parameterID == "delayMix")      p.delayMix = newValue;
+    else if (parameterID == "reverbAmount")  p.reverbAmount = newValue;
+    else if (parameterID == "reverbSize")    p.reverbSize = newValue;
     else return;
 
     // Spectrum-affecting params trigger auto logBaseline recalculation
     if (parameterID == "stretch2" || parameterID == "stretch3" ||
         parameterID == "stretch5" || parameterID == "stretch7" ||
         parameterID == "strikePos" || parameterID == "oddEven" ||
-        parameterID == "curvePartials" || parameterID == "warp")
+        parameterID == "curvePartials" || parameterID == "warp" ||
+        parameterID == "centreFocus" || parameterID == "ampTilt")
         autoLogBaseline_ = true;
 
     paramsDirty_ = true;
@@ -479,6 +626,9 @@ void PseudoHarmonicProcessor::timerCallback()
     if (paramsNeedBroadcast_.exchange(false))
         sendParamsToUI();
 
+    if (modStateNeedsBroadcast_.exchange(false))
+        sendModStateToUI();
+
     // Send output level
     wsBridge_.sendLevel(peakLevel_.load());
 
@@ -527,31 +677,14 @@ void PseudoHarmonicProcessor::timerCallback()
         const auto& ratios = engine_.getFreqRatios();
         const auto& p = pendingParams_;  // read pending (message thread)
 
-        // Build amplitude array (same logic as sendCurveToUI)
+        // Amplitudes from the shared spectrum model (includes centre-of-focus,
+        // amp tilt, even/odd, strike comb, and the fractional partial window).
         std::array<float, kMaxHarmonics> amps{};
-        for (int h = 0; h < kMaxHarmonics; ++h)
-        {
-            float n = float(h + 1);
-            amps[h] = (1.0f / n) * std::sin(float(M_PI) * n * p.strikePos / 2.0f)
-                      * ((h + 1) % 2 == 0 ? p.oddEven : 1.0f);
-        }
-        float sum = 0;
-        for (int h = 0; h < p.numHarmonics; ++h) sum += std::abs(amps[h]);
-        if (sum > 0) for (int h = 0; h < p.numHarmonics; ++h) amps[h] /= sum;
+        SpectrumModel::computeGains(p, amps);
 
-        int fullPartials = static_cast<int>(p.curvePartials);
-        float fracWeight = p.curvePartials - float(fullPartials);
-        for (int h = 0; h < kMaxHarmonics; ++h)
-        {
-            if (h < fullPartials) ;
-            else if (h == fullPartials) amps[h] *= fracWeight;
-            else amps[h] = 0.0f;
-        }
-
-        int numPartials = std::min(p.numHarmonics, fullPartials + (fracWeight > 0.0f ? 1 : 0));
         std::vector<std::pair<float, float>> spectrum;
-        spectrum.reserve(numPartials);
-        for (int h = 0; h < numPartials; ++h)
+        spectrum.reserve(kMaxHarmonics);
+        for (int h = 0; h < kMaxHarmonics; ++h)
         {
             float a = std::abs(amps[h]);
             if (a > 1e-8f)
@@ -669,6 +802,7 @@ void PseudoHarmonicProcessor::handleParamFromUI(const std::string& id, float val
         }
         else if (id == "mpeMasterBendRange") p.mpeMasterBendRange = value;
         else if (id == "mpePerNoteBendRange") p.mpePerNoteBendRange = value;
+        else if (id == "excitationMode") p.excitationMode = (value > 0.5f) ? 1 : 0;
         else return;
     }
 
@@ -682,37 +816,16 @@ void PseudoHarmonicProcessor::sendCurveToUI()
     const auto& ratios = engine_.getFreqRatios();
     const auto& p = pendingParams_;  // read pending (message thread)
 
-    // Build amplitude array (same as gains normalization)
+    // Amplitudes from the shared spectrum model so the consonance curve
+    // reflects the audible spectrum (centre-of-focus, amp tilt, even/odd,
+    // strike comb, and the fractional partial window).
     std::array<float, kMaxHarmonics> amps{};
-    for (int h = 0; h < kMaxHarmonics; ++h)
-    {
-        float n = float(h + 1);
-        amps[h] = (1.0f / n) * std::sin(float(M_PI) * n * p.strikePos / 2.0f)
-                  * ((h + 1) % 2 == 0 ? p.oddEven : 1.0f);
-    }
-    // Normalize
-    float sum = 0;
-    for (int h = 0; h < p.numHarmonics; ++h) sum += std::abs(amps[h]);
-    if (sum > 0) for (int h = 0; h < p.numHarmonics; ++h) amps[h] /= sum;
+    SpectrumModel::computeGains(p, amps);
 
-    // Apply partials windowing (same as engine): fractional partial count
-    int fullPartials = static_cast<int>(p.curvePartials);
-    float fracWeight = p.curvePartials - float(fullPartials);
-    for (int h = 0; h < kMaxHarmonics; ++h)
-    {
-        if (h < fullPartials)
-            ; // full weight
-        else if (h == fullPartials)
-            amps[h] *= fracWeight;
-        else
-            amps[h] = 0.0f;
-    }
-
-    // Build scalatrix::Spectrum from ratios + amplitudes
-    int numPartials = std::min(p.numHarmonics, fullPartials + (fracWeight > 0.0f ? 1 : 0));
+    // Build scalatrix::Spectrum from ratios + amplitudes.
     std::vector<scalatrix::Partial> partials;
-    partials.reserve(numPartials);
-    for (int h = 0; h < numPartials; ++h)
+    partials.reserve(kMaxHarmonics);
+    for (int h = 0; h < kMaxHarmonics; ++h)
     {
         double a = std::abs(double(amps[h]));
         if (a > 1e-8)
@@ -774,7 +887,7 @@ void PseudoHarmonicProcessor::sendCurveToUI()
         struct RatioEntry { float cents; int num; int den; int rp; int rq; };
         std::vector<RatioEntry> entries;
 
-        for (int j = 1; j < numPartials; ++j)
+        for (int j = 1; j < kMaxHarmonics; ++j)
         {
             if (std::abs(amps[j]) < 1e-6f) continue;
             for (int i = 0; i < j; ++i)
@@ -898,6 +1011,17 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"curvePartials", p.curvePartials},
         {"logBaseline", p.logBaseline},
         {"warp", p.warp},
+        {"centreFocus", p.centreFocus},
+        {"ampTilt", p.ampTilt},
+        {"phaseSpread", p.phaseSpread},
+        {"excitationMode", p.excitationMode},
+        {"filterType", p.filterType}, {"filterCutoff", p.filterCutoff}, {"filterReso", p.filterReso},
+        {"delayTime", p.delayTime}, {"delayFeedback", p.delayFeedback}, {"delayMix", p.delayMix},
+        {"reverbAmount", p.reverbAmount}, {"reverbSize", p.reverbSize},
+        {"macro1", macroValues_[0].load()}, {"macro2", macroValues_[1].load()},
+        {"macro3", macroValues_[2].load()}, {"macro4", macroValues_[3].load()},
+        {"macro5", macroValues_[4].load()}, {"macro6", macroValues_[5].load()},
+        {"macro7", macroValues_[6].load()}, {"macro8", macroValues_[7].load()},
         {"oscSendConsonance", oscSendConsonance_.load()},
         {"oscSendSpectrum", oscSendSpectrum_.load()},
         {"showRatioLabels", showRatioLabels_.load()},
@@ -910,6 +1034,117 @@ void PseudoHarmonicProcessor::sendParamsToUI()
         {"buildTimestamp", PH_BUILD_TIMESTAMP}
     };
     wsBridge_.sendParams(j);
+}
+
+void PseudoHarmonicProcessor::handleCommandFromUI(const nlohmann::json& j)
+{
+    const std::string type = j.value("type", std::string());
+    if (type == "modConfig" && j.contains("data"))
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(modMutex_);
+            modConfig_ = modjson::fromJson(j["data"]);
+        }
+        catch (...) { return; }
+        modConfigDirty_ = true;
+        modStateNeedsBroadcast_ = true;   // echo to any other clients
+    }
+    else if (type == "requestModState")
+    {
+        modStateNeedsBroadcast_ = true;
+    }
+    else if (type == "presetList")
+    {
+        sendPresetListToUI();
+    }
+    else if (type == "presetSave")
+    {
+        const std::string name = j.value("name", std::string());
+        if (!name.empty()) { presetManager_.save(name, buildPresetJson().dump(2)); sendPresetListToUI(); }
+    }
+    else if (type == "presetLoad")
+    {
+        const std::string name = j.value("name", std::string());
+        auto txt = presetManager_.load(name);
+        if (!txt.empty())
+        {
+            try { applyPresetJson(nlohmann::json::parse(txt)); } catch (...) {}
+        }
+    }
+    else if (type == "presetDelete")
+    {
+        presetManager_.remove(j.value("name", std::string()));
+        sendPresetListToUI();
+    }
+}
+
+nlohmann::json PseudoHarmonicProcessor::buildPresetJson()
+{
+    nlohmann::json params;
+    for (auto* id : paramIDs)
+        if (auto* rp = apvts_.getRawParameterValue(id))
+            params[id] = rp->load();
+
+    nlohmann::json j;
+    j["params"] = params;
+    {
+        std::lock_guard<std::mutex> lock(pendingParamsMutex_);
+        j["excitationMode"] = pendingParams_.excitationMode;
+    }
+    {
+        std::lock_guard<std::mutex> mlock(modMutex_);
+        j["mod"] = modjson::toJson(modConfig_);
+    }
+    return j;
+}
+
+void PseudoHarmonicProcessor::applyPresetJson(const nlohmann::json& j)
+{
+    const nlohmann::json params = j.contains("params") ? j["params"] : nlohmann::json::object();
+
+    // Set every param: use the preset value if present, else the parameter's
+    // default — so a preset load is a clean reset, not a layer over current state.
+    for (auto* id : paramIDs)
+    {
+        float value = 0.0f;
+        if (params.contains(id))
+            value = params[id].get<float>();
+        else if (auto* p = apvts_.getParameter(id))
+            value = p->getNormalisableRange().convertFrom0to1(p->getDefaultValue());
+        else
+            continue;
+        handleParamFromUI(id, value);
+    }
+
+    handleParamFromUI("excitationMode", static_cast<float>(j.value("excitationMode", 0)));
+
+    {
+        std::lock_guard<std::mutex> mlock(modMutex_);
+        modConfig_ = j.contains("mod") ? modjson::fromJson(j["mod"]) : ModConfig{};
+    }
+    modConfigDirty_ = true;
+    modStateNeedsBroadcast_ = true;
+    paramsNeedBroadcast_ = true;
+}
+
+void PseudoHarmonicProcessor::sendPresetListToUI()
+{
+    nlohmann::json a = nlohmann::json::array();
+    for (auto& n : presetManager_.list()) a.push_back(n);
+    wsBridge_.sendMessage("presets", a);
+}
+
+void PseudoHarmonicProcessor::sendModStateToUI()
+{
+    nlohmann::json data;
+    {
+        std::lock_guard<std::mutex> lock(modMutex_);
+        data["config"] = modjson::toJson(modConfig_);
+    }
+    data["sources"] = modjson::sourceList();
+    data["dests"]   = modjson::destList();
+    wsBridge_.sendMessage("modstate", data);
 }
 
 void PseudoHarmonicProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -925,6 +1160,17 @@ void PseudoHarmonicProcessor::getStateInformation(juce::MemoryBlock& destData)
     midi->setAttribute("pitchBendRange", (double)p.pitchBendRange);
     midi->setAttribute("mpeMasterBendRange", (double)p.mpeMasterBendRange);
     midi->setAttribute("mpePerNoteBendRange", (double)p.mpePerNoteBendRange);
+
+    // Non-APVTS synth settings (mode switches that aren't automatable floats).
+    auto* synth = xml->createNewChildElement("SynthSettings");
+    synth->setAttribute("excitationMode", p.excitationMode);
+
+    // Modulation configuration (routes + LFO/envelope settings) as a JSON blob.
+    {
+        std::lock_guard<std::mutex> mlock(modMutex_);
+        auto* mod = xml->createNewChildElement("ModConfig");
+        mod->addTextElement(juce::String(modjson::toJson(modConfig_).dump()));
+    }
 
     auto* osc = xml->createNewChildElement("OSCSettings");
     osc->setAttribute("sendConsonance", oscSendConsonance_.load() ? 1 : 0);
@@ -953,6 +1199,31 @@ void PseudoHarmonicProcessor::setStateInformation(const void* data, int sizeInBy
 
             // Remove before passing to APVTS so it doesn't see unknown elements
             xml->removeChildElement(midi, true);
+        }
+
+        if (auto* synth = xml->getChildByName("SynthSettings"))
+        {
+            std::lock_guard<std::mutex> lock(pendingParamsMutex_);
+            pendingParams_.excitationMode = synth->getIntAttribute("excitationMode", 0);
+            paramsDirty_ = true;
+            xml->removeChildElement(synth, true);
+        }
+
+        if (auto* mod = xml->getChildByName("ModConfig"))
+        {
+            try
+            {
+                auto txt = mod->getAllSubText().toStdString();
+                if (!txt.empty())
+                {
+                    std::lock_guard<std::mutex> mlock(modMutex_);
+                    modConfig_ = modjson::fromJson(nlohmann::json::parse(txt));
+                    modConfigDirty_ = true;
+                    modStateNeedsBroadcast_ = true;
+                }
+            }
+            catch (...) {}
+            xml->removeChildElement(mod, true);
         }
 
         if (auto* osc = xml->getChildByName("OSCSettings"))

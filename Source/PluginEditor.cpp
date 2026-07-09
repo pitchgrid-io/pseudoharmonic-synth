@@ -1,8 +1,5 @@
 #include "PluginEditor.h"
-
-#ifndef NDEBUG
-static const char* localDevServerAddress = "http://localhost:5174";
-#endif
+#include <cstdlib>
 
 namespace
 {
@@ -73,7 +70,13 @@ PseudoHarmonicEditor::PseudoHarmonicEditor(PseudoHarmonicProcessor& p)
     setSize(1300, 720);
 
 #ifndef NDEBUG
-    webComponent.goToURL(localDevServerAddress);
+    // Debug builds load the UI from the vite dev server for hot reload. run_dev.sh
+    // picks an ephemeral port and passes it via PH_DEV_UI_PORT; default 5174.
+    juce::String devPort{"5174"};
+    if (const char* env = std::getenv("PH_DEV_UI_PORT"))
+        if (juce::String{env}.trim().isNotEmpty())
+            devPort = juce::String{env}.trim();
+    webComponent.goToURL("http://localhost:" + devPort);
 #else
     webComponent.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
 #endif

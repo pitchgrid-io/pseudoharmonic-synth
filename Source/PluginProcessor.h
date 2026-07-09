@@ -2,6 +2,9 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "DSP/PseudoHarmonicEngine.h"
+#include "DSP/Effects/MasterEffects.h"
+#include "Mod/ModEngine.h"
+#include "Preset/PresetManager.h"
 #include "Network/WSBridge.h"
 #include "Network/OSCReceiver.h"
 #include "Visualization/ConsonanceCurve.h"
@@ -53,11 +56,19 @@ private:
     void handleParamFromUI(const std::string& id, float value);
     void sendCurveToUI();
     void sendParamsToUI();
+    void sendModStateToUI();
+    void handleCommandFromUI(const nlohmann::json& j);
+    void sendPresetListToUI();
+    nlohmann::json buildPresetJson();
+    void applyPresetJson(const nlohmann::json& j);
     void applyFollowTuning(const TuningParams& tuning);
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     PseudoHarmonicEngine engine_;
+    ModEngine modEngine_;
+    MasterEffects masterFx_;
+    PresetManager presetManager_;
     WSBridge wsBridge_;
     OSCReceiver oscReceiver_;
     ConsonanceCurveCalculator curveCalc_;
@@ -96,6 +107,16 @@ private:
     // Follow-tuning debug info (updated by applyFollowTuning, read by timerCallback)
     nlohmann::json followTuningInfo_;
 
+    // Sample rate cached for control-rate modulation (block dt).
+    double sampleRate_{44100.0};
+
+    // Expression snapshot for the ModEngine (audio thread only): updated from
+    // MIDI, read once per block to build ModInputs.
+    float lastVelocity_{0.0f};
+    float lastTimbreY_{0.0f};    // CC74 / MPE Y, 0..1
+    float lastPressureZ_{0.0f};  // channel pressure, 0..1
+    float lastPitchX_{0.0f};     // key-follow, bipolar (-1..1) around middle C
+
     // Double-buffered params: writers update pendingParams_ behind mutex,
     // audio thread swaps into engine at start of processBlock
     SynthParams pendingParams_;
@@ -113,8 +134,31 @@ private:
         "stretch2", "stretch3", "stretch5", "stretch7", "stretch11", "stretch13",
         "decay", "release", "strikePos", "oddEven",
         "strike", "volume", "noiseMix", "sustain", "detune", "relaxTime",
-        "curvePartials", "logBaseline", "warp"
+        "curvePartials", "logBaseline", "warp",
+        "centreFocus", "ampTilt", "phaseSpread",
+        "filterType", "filterCutoff", "filterReso",
+        "delayTime", "delayFeedback", "delayMix", "reverbAmount", "reverbSize",
+        "macro1", "macro2", "macro3", "macro4", "macro5", "macro6", "macro7", "macro8"
     };
+
+    // Effective macro values (0..1) fed to the ModEngine each block. Written by
+    // host automation (APVTS), MIDI CC, and OSC; read on the audio thread.
+    std::array<std::atomic<float>, 8> macroValues_{};
+
+    // Default MIDI CC → macro map (CC 20..27 → macro 1..8). -1 disables.
+    std::array<int, 8> macroCC_{ {20, 21, 22, 23, 24, 25, 26, 27} };
+
+    // Last-seen OSC macro versions, so OSC drives macros only on fresh values
+    // (without clobbering host/CC-driven ones every block).
+    std::array<uint32_t, 8> lastOscMacroVer_{};
+
+    // Modulation configuration (routes + LFO/envelope settings). Authoritative
+    // copy owned by the message/UI thread; pushed into the ModEngine on the
+    // audio thread when dirty (under modMutex_).
+    ModConfig modConfig_;
+    std::mutex modMutex_;
+    std::atomic<bool> modConfigDirty_{false};
+    std::atomic<bool> modStateNeedsBroadcast_{true};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PseudoHarmonicProcessor)
 };

@@ -202,6 +202,31 @@ void OSCReceiver::parseOSCPacket(const uint8_t* data, size_t len)
             Clock::now().time_since_epoch()).count();
         lastHeartbeatMs_.store(now);
     }
+    else if (address == "/pitchgrid/plugin/macro")
+    {
+        // ,if <index 0..7> <value 0..1> — external macro drive.
+        double idxArg = 0.0, valArg = 0.0;
+        int parsed = 0;
+        for (size_t i = 1; i < typeTags.size() && offset < len && parsed < 2; ++i)
+        {
+            char tag = typeTags[i];
+            double a = 0.0;
+            if (tag == 'i')      a = static_cast<double>(readInt32(data, offset));
+            else if (tag == 'f') a = static_cast<double>(readFloat32(data, offset));
+            else if (tag == 'd') a = readFloat64(data, offset);
+            else break;
+            if (parsed == 0) idxArg = a; else valArg = a;
+            ++parsed;
+        }
+        int idx = static_cast<int>(idxArg);
+        if (parsed >= 2 && idx >= 0 && idx < 8)
+        {
+            float v = static_cast<float>(valArg);
+            if (v < 0.0f) v = 0.0f; else if (v > 1.0f) v = 1.0f;
+            macroVals_[idx].store(v);
+            macroVer_[idx].fetch_add(1);
+        }
+    }
 }
 
 // ── OSC binary helpers ───────────────────────────────────────────────────────

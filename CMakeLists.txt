@@ -93,6 +93,18 @@ target_sources(PseudoHarmonicSynth PRIVATE
     Source/DSP/PseudoHarmonicVoice.h
     Source/DSP/PseudoHarmonicEngine.cpp
     Source/DSP/PseudoHarmonicEngine.h
+    Source/DSP/SpectrumModel.h
+    Source/DSP/Effects/MasterEffects.h
+    Source/Mod/ModEngine.h
+    Source/Mod/ModSource.h
+    Source/Mod/ShapeGenerator.h
+    Source/Mod/Envelope.h
+    Source/Mod/TransferCurve.h
+    Source/Mod/Formula.h
+    Source/Mod/ModMatrix.h
+    Source/Mod/ModConfigJson.h
+    Source/Preset/PresetManager.h
+    Source/Preset/PresetManager.cpp
     Source/Network/SimpleWebSocketServer.h
     Source/Network/WSBridge.cpp
     Source/Network/WSBridge.h

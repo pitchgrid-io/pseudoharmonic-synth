@@ -1,4 +1,5 @@
 #include "PseudoHarmonicEngine.h"
+#include "SpectrumModel.h"
 #include "libMTSClient.h"
 #include <algorithm>
 #include <random>
@@ -37,9 +38,13 @@ void PseudoHarmonicEngine::paramsChanged()
             else if (newG > 1e-10f)
                 v.x[h] = std::complex<float>(0.0f, 0.0f); // was silent, stays silent
 
-            // Update sustain level relative to harmonic gains
+            // Update sustain/drive level relative to harmonic gains.  In
+            // continuous excitation mode the partials are driven to their full
+            // amplitude (a bowed/blown sustain); in impact mode the target is
+            // the sustain parameter (a struck sound that decays unless held).
             float sustainScale = effectiveMpeEnabled() ? 1.0f : v.velocity;
-            v.sustainLevel[h] = params_.sustain * sustainScale * harmonicGains_[h];
+            float driveTarget  = (params_.excitationMode == 1) ? 1.0f : params_.sustain;
+            v.sustainLevel[h] = driveTarget * sustainScale * harmonicGains_[h];
         }
     }
 
@@ -53,87 +58,32 @@ void PseudoHarmonicEngine::paramsChanged()
     // Relax factor per block
     relaxFactor_ = std::exp(-float(blockSize_) / float(sampleRate_ * params_.relaxTime));
 
+    // Global filter coefficients (shared by all voices; per-voice state).
+    filterCoeffs_.set(params_.filterCutoff, params_.filterReso, float(sampleRate_));
+
     updateAllRotations();
 }
 
 void PseudoHarmonicEngine::recomputeFreqRatios()
 {
-    int fullStretch = static_cast<int>(params_.warp);
-    float fracWeight = params_.warp - float(fullStretch);
-
-    for (int h = 0; h < kMaxHarmonics; ++h)
-    {
-        float harmonic = float(h + 1);
-        float pseudo = harmonic;
-        auto factors = primeFactors(h + 1);
-        for (int p : factors)
-        {
-            switch (p)
-            {
-                case 2: pseudo *= params_.stretch2 / 2.0f; break;
-                case 3: pseudo *= params_.stretch3 / 3.0f; break;
-                case 5: pseudo *= params_.stretch5 / 5.0f; break;
-                case 7: pseudo *= params_.stretch7 / 7.0f; break;
-                case 11: pseudo *= params_.stretch11 / 11.0f; break;
-                case 13: pseudo *= params_.stretch13 / 13.0f; break;
-                default: break;
-            }
-        }
-
-        // Blend in log-freq space: below fullStretch = full pseudo,
-        // at boundary = fractional blend, above = pure harmonic
-        float weight; // 1 = full pseudo, 0 = pure harmonic
-        if (h < fullStretch)
-            weight = 1.0f;
-        else if (h == fullStretch)
-            weight = fracWeight;
-        else
-            weight = 0.0f;
-
-        if (weight >= 1.0f)
-            freqRatios_[h] = pseudo;
-        else if (weight <= 0.0f)
-            freqRatios_[h] = harmonic;
-        else
-            freqRatios_[h] = std::exp2(weight * std::log2(pseudo) + (1.0f - weight) * std::log2(harmonic));
-    }
+    SpectrumModel::computeFreqRatios(params_, freqRatios_);
 }
 
 void PseudoHarmonicEngine::recomputeGains()
 {
-    float sumGains = 0.0f;
-    int fullPartials = static_cast<int>(params_.curvePartials);
-    float fracWeight = params_.curvePartials - float(fullPartials);
+    // Magnitudes (pseudoharmonic amplitude shape) and per-partial phase offsets.
+    SpectrumModel::computeGains(params_, harmonicGains_);
 
+    std::array<float, kMaxHarmonics> phases{};
+    SpectrumModel::computePhases(params_, phases);
+
+    // Build the complex impact vector: strike * magnitude * e^{i 2*pi*phase}.
+    // With phaseSpread == 0 the exponential is 1, so the vector is purely real.
     for (int h = 0; h < kMaxHarmonics; ++h)
     {
-        float n = float(h + 1);
-        float gain = (1.0f / n)
-                     * std::sin(float(M_PI) * n * params_.strikePos / 2.0f)
-                     * ((h + 1) % 2 == 0 ? params_.oddEven : 1.0f);
-
-        // Apply partials windowing: full weight up to fullPartials,
-        // fractional weight on the next, zero beyond
-        if (h < fullPartials)
-            ; // full weight
-        else if (h == fullPartials)
-            gain *= fracWeight;
-        else
-            gain = 0.0f;
-
-        harmonicGains_[h] = gain;
-        sumGains += std::abs(gain);
-    }
-
-    // Normalize
-    if (sumGains > 0.0f)
-    {
-        float norm = float(kMaxVoices) / sumGains;
-        for (int h = 0; h < kMaxHarmonics; ++h)
-        {
-            harmonicGains_[h] *= norm;
-            impactVec_[h] = params_.strike * harmonicGains_[h];
-        }
+        float ang = 2.0f * float(M_PI) * phases[h];
+        impactVec_[h] = params_.strike * harmonicGains_[h]
+                        * std::complex<float>(std::cos(ang), std::sin(ang));
     }
 }
 
@@ -235,11 +185,14 @@ void PseudoHarmonicEngine::noteOn(int note, float velocity, int mpeChannel)
     v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
     v.impact(impactVec_, velocity);
 
-    // Sustain levels relative to harmonic gains (independent of strike)
-    // In MPE mode, pressure controls sustain/noise instead of velocity
+    // Sustain/drive levels relative to harmonic gains (independent of strike).
+    // In MPE mode, pressure controls sustain/noise instead of velocity.
+    // Continuous excitation mode drives partials to full amplitude for a
+    // sustained (bowed/blown) tone; impact mode uses the sustain parameter.
     float sustainScale = effectiveMpeEnabled() ? 1.0f : velocity;
+    float driveTarget  = (params_.excitationMode == 1) ? 1.0f : params_.sustain;
     for (int h = 0; h < kMaxHarmonics; ++h)
-        v.sustainLevel[h] = params_.sustain * sustainScale * harmonicGains_[h];
+        v.sustainLevel[h] = driveTarget * sustainScale * harmonicGains_[h];
 
     // Recompute rotation so sustainExcitation reflects the sustain levels
     v.updateRotation(freqRatios_, decayRates_, releaseRates_, float(sampleRate_));
@@ -409,7 +362,9 @@ void PseudoHarmonicEngine::processBlock(float* outputL, float* outputR, int numS
                     v.x[h] += 0.002f * noiseMix * noiseDist(rng) * harmonicGains_[h];
             }
 
-            sample += v.processSample(v.pressure);
+            float vs = v.processSample(v.pressure);
+            vs = v.applyFilter(vs, filterCoeffs_, params_.filterType);
+            sample += vs;
 
             // Check if voice has decayed enough to deactivate
             if (v.energy() < 1e-10f)

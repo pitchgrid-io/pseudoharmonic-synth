@@ -30,25 +30,39 @@ This connects directly to [PitchGrid](https://pitchgrid.io): the consonance curv
 
 ## Building
 
-Requires JUCE (expected at `../pitchgrid-plugin/JUCE`) and CMake ≥ 3.15.
+Requires CMake ≥ 3.15, Node/npm (for the web UI), and the git submodules (JUCE + scalatrix):
 
 ```bash
-mkdir build && cd build
-cmake ..
-cmake --build .
+git submodule update --init --recursive
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
 
-Builds VST3 and Standalone targets.
+Builds Standalone, VST3, and AU targets. Release builds bundle the web UI into the plugin;
+Debug builds load it from the vite dev server (see Development below).
 
-## Web UI
+## Development
+
+For day-to-day work use the self-contained dev launcher:
 
 ```bash
-cd ui
-npm install
-npm run dev
+./run_dev.sh
 ```
 
-The synth standalone hosts a WebSocket server; the UI connects to visualize and control parameters in real time.
+It starts the Svelte UI (vite) on an **ephemeral port**, builds the Debug Standalone, and
+launches it — the app reads that port from `PH_DEV_UI_PORT` and loads the dev server, so
+frontend changes hot-reload without rebuilding the plugin. Ctrl+C (or closing the app) stops
+the dev server and frees the port.
+
+The synth standalone also hosts a WebSocket server on an auto-assigned port; the UI discovers
+it at runtime (via the `uiMounted` native function) and connects to visualize and control
+parameters, modulation, and presets in real time.
+
+To run the UI on its own (e.g. against a separately launched build):
+
+```bash
+cd ui && npm install && npm run dev
+```
 
 ## Part of the PitchGrid Ecosystem
 

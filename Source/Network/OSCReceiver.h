@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <atomic>
+#include <array>
 #include <mutex>
 #include <cstdint>
 #include <cstring>
@@ -55,6 +56,12 @@ public:
     uint64_t getTuningVersion() const { return tuningVersion_.load(); }
     bool isConnected() const;
 
+    // External macro drive: /pitchgrid/plugin/macro ,if <index 0..7> <value 0..1>.
+    // The version bumps on each received value so the host can apply only fresh
+    // OSC-driven changes (and not clobber host/CC-driven macros).
+    float    getMacro(int i) const { return (i >= 0 && i < 8) ? macroVals_[i].load() : 0.0f; }
+    uint32_t getMacroVersion(int i) const { return (i >= 0 && i < 8) ? macroVer_[i].load() : 0; }
+
     void sendNodeConsonances(const std::vector<NodeConsonance>& nodes);
     void sendSpectrum(const std::vector<std::pair<float, float>>& partials); // (ratio, weight)
 
@@ -85,6 +92,9 @@ private:
     mutable std::mutex tuningMutex_;
     TuningParams tuning_;
     std::atomic<uint64_t> tuningVersion_{0};
+
+    std::array<std::atomic<float>, 8>    macroVals_{};
+    std::array<std::atomic<uint32_t>, 8> macroVer_{};
 
     using Clock = std::chrono::steady_clock;
     std::atomic<int64_t> lastHeartbeatMs_{0};

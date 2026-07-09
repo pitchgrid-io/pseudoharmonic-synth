@@ -3,12 +3,18 @@
   import { init, sendParam, params, activeNotes, outputLevel, followTuningInfo } from './lib/ws.js';
   import Knob from './lib/Knob.svelte';
   import ConsonancePlot from './lib/ConsonancePlot.svelte';
-  import logoSrc from '../../Assets/logo_ph.svg';
+  import MacroPanel from './lib/MacroPanel.svelte';
+  import ModMatrix from './lib/ModMatrix.svelte';
+  import FxPanel from './lib/FxPanel.svelte';
+  import PresetPanel from './lib/PresetPanel.svelte';
+  import logoSrc from '../../assets/logo_ph.svg';
 
   onMount(() => init());
 
   let showSettings = false;
   let showModeMenu = false;
+  let view = 'play';          // 'play' | 'mod' | 'fx' | 'presets'
+  const tabs = [['play', 'Play'], ['mod', 'Modulation'], ['fx', 'Filter / FX'], ['presets', 'Presets']];
 
   function send(id) {
     return (val) => sendParam(id, val);
@@ -205,6 +211,27 @@
     <ConsonancePlot />
   </section>
 
+  <!-- Tab bar -->
+  <nav class="tab-bar">
+    {#each tabs as [id, label]}
+      <button class="tab" class:active={view === id} on:click={() => view = id}>{label}</button>
+    {/each}
+  </nav>
+
+  {#if view === 'mod'}
+    <MacroPanel />
+    <ModMatrix />
+  {/if}
+
+  {#if view === 'fx'}
+    <FxPanel />
+  {/if}
+
+  {#if view === 'presets'}
+    <PresetPanel />
+  {/if}
+
+  {#if view === 'play'}
   {#if $params.followTuning && $followTuningInfo.length > 0}
   <section class="follow-tuning-info">
     <table>
@@ -306,6 +333,7 @@
       </div>
     </div>
   </section>
+  {/if}
 
   <!-- Output level meter -->
   <div class="level-meter">
@@ -530,6 +558,29 @@
   }
   .follow-label {
     line-height: 1;
+  }
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    padding: 0 16px;
+    margin: 6px 0 4px;
+    border-bottom: 1px solid #23252e;
+  }
+  .tab {
+    background: transparent;
+    color: #889;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .tab:hover { color: #cde; }
+  .tab.active {
+    color: #FFAB00;
+    border-bottom-color: #FFAB00;
   }
   .follow-tuning-info {
     padding: 0 16px 4px;

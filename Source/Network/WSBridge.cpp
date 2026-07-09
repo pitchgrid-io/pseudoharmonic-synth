@@ -59,6 +59,11 @@ void WSBridge::clientLoop(std::shared_ptr<SimpleWS::WebSocketConnection> conn)
                 if (paramCallback_)
                     paramCallback_(j["id"].get<std::string>(), j["value"].get<float>());
             }
+            else if (commandCallback_)
+            {
+                // Any other typed message (mod-route edits, preset commands…).
+                commandCallback_(j);
+            }
         }
         catch (...) {}
     }
@@ -120,5 +125,11 @@ void WSBridge::sendFollowTuningInfo(const json& info)
 void WSBridge::sendLevel(float peak)
 {
     json msg = {{"type", "level"}, {"value", peak}};
+    broadcast(msg.dump());
+}
+
+void WSBridge::sendMessage(const std::string& type, const json& data)
+{
+    json msg = {{"type", type}, {"data", data}};
     broadcast(msg.dump());
 }

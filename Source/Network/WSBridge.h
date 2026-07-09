@@ -35,9 +35,17 @@ public:
     void sendFollowTuningInfo(const json& info);
     void sendLevel(float peak);
 
+    // Generic typed message (e.g. modulation state, preset list).
+    void sendMessage(const std::string& type, const json& data);
+
     // Callback when UI changes a parameter
     using ParamCallback = std::function<void(const std::string& id, float value)>;
     void onParamChange(ParamCallback cb) { paramCallback_ = cb; }
+
+    // Callback for any non-"param" message (mod-route edits, preset commands…).
+    // Receives the whole parsed JSON object; the handler dispatches on type.
+    using CommandCallback = std::function<void(const json&)>;
+    void onCommand(CommandCallback cb) { commandCallback_ = cb; }
 
     // Callback when a new client connects
     using ConnectCallback = std::function<void()>;
@@ -52,6 +60,7 @@ private:
     std::vector<std::shared_ptr<SimpleWS::WebSocketConnection>> clients_;
     std::mutex clientsMutex_;
     ParamCallback paramCallback_;
+    CommandCallback commandCallback_;
     ConnectCallback connectCallback_;
     std::atomic<uint16_t> port_{0};
 };

@@ -53,6 +53,27 @@ struct SynthParams
     float curvePartials = 16.0f;          // fractional: 9.4 = 9 full + 10th at 0.4 weight
     float warp = 32.0f;        // how many partials get pseudoharmonic pitch adjustment
     float logBaseline = 0.5f;             // log formula: C = max(0, 1 + logBaseline * log10(pyr/peak))
+
+    // --- Spectral shaping (SineBank-style; all neutral by default so the
+    //     default timbre is unchanged) ---
+    float centreFocus = 0.0f;   // centre-of-focus partial index (0 = 1st partial)
+    float ampTilt     = 0.0f;   // dB attenuation per partial away from centre (0 = flat)
+    float phaseSpread = 0.0f;   // phase offset accumulated per partial, in turns (0..1)
+
+    // Excitation model: 0 = impact (struck/decaying), 1 = continuous (driven/sustained)
+    int excitationMode = 0;
+
+    // --- Per-voice multimode filter (TPT state-variable) ---
+    int   filterType   = 0;        // 0=Off, 1=LP, 2=HP, 3=BP, 4=Notch
+    float filterCutoff = 12000.0f; // Hz
+    float filterReso   = 0.1f;     // 0..1 (resonance)
+
+    // --- Master effects (delay + reverb), applied to the summed output ---
+    float delayTime     = 0.3f;    // seconds
+    float delayFeedback = 0.3f;    // 0..1
+    float delayMix      = 0.0f;    // 0..1 (0 = off)
+    float reverbAmount  = 0.0f;    // 0..1 wet (0 = off)
+    float reverbSize    = 0.5f;    // 0..1 room size
 };
 
 class PseudoHarmonicEngine
@@ -121,10 +142,14 @@ private:
     // Derived arrays
     std::array<float, kMaxHarmonics> freqRatios_{};
     std::array<float, kMaxHarmonics> harmonicGains_{};
-    std::array<float, kMaxHarmonics> impactVec_{};
+    // Complex so each partial can be struck at its own phase (phaseSpread).
+    std::array<std::complex<float>, kMaxHarmonics> impactVec_{};
     std::array<float, kMaxHarmonics> decayRates_{};
     std::array<float, kMaxHarmonics> releaseRates_{};
     float relaxFactor_ = 0.0f;
+
+    // Global filter coefficients (computed per block from params_).
+    FilterCoeffs filterCoeffs_{};
 
     // Per-channel pitch bend state (raw 14-bit, center = 8192)
     std::array<int, 16> channelBendRaw_{};  // indexed 0-15 for channels 1-16
